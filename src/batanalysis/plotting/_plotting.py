@@ -41,7 +41,7 @@ class ChargeDischarge(Plotter[ChargeDischargeData]):
 
         x = df['x']
         y = df[cls.voltage.name]
-        target.add_line(x, y, label=label, **opts)
+        target.add_line(x, y, label=label, color=color, **opts)
         if self.add_ax_labels:
             target.set_ax_label('x', f'Capacity ({data.get_unit("step_capacity")})')
             target.set_ax_label('y', f'Volatge ({data.get_unit("voltage")})')
@@ -68,6 +68,7 @@ class DqDv(Plotter[ChargeDischargeData]):
         x = data.voltage,
         y = data.dqdv,
         label = label,
+        color = color,
         **opts,
         )
         if self.add_ax_labels:
@@ -83,7 +84,7 @@ class ColeCole(Plotter[EISData]):
         cls = EISData
         x = data.re_Z
         y = data.im_Z
-        target.add_line(x, y, label=label, **opts)
+        target.add_line(x, y, label=label, color=color, **opts)
         target.reverse_axis(y=True)
         if self.add_ax_labels:
             target.set_ax_label("x", f"Re[Z] ({data.get_unit(cls.re_Z.name)})")
@@ -101,7 +102,7 @@ class BodeTheta(Plotter[EISData]):
             calc_z_theta(data)
         x = data.frequency
         y = data.col_to_unit(cls.theta.name, 'deg')
-        target.add_line(x, y, label=label, **opts)
+        target.add_line(x, y, label=label, color=color, **opts)
         target.set_scale('x', 'log')
         if self.add_ax_labels:
             target.set_ax_label("x", f"Frequency ({data.get_unit(cls.frequency.name)})")
@@ -117,7 +118,7 @@ class BodeZ(Plotter[EISData]):
             calc_z_theta(data)
         x = data.frequency
         y = data.abs_Z
-        target.add_line(x, y, label=label, **opts)
+        target.add_line(x, y, label=label, color=color, **opts)
         target.set_scale('x', 'log')
         if self.add_ax_labels:
             target.set_ax_label("x", f"Frequency ({data.get_unit(cls.frequency.name)})")
@@ -135,7 +136,7 @@ class CycleSummary(Plotter[CycleSummaryData]):
         col_y = f'{self.value}_{self.state}_retention' if self.mode == 'retention' \
                     else f'{self.value}_{self.state}'
         y = data.table[col_y]
-        target.add_line(x, y, label=label, **opts)
+        target.add_line(x, y, label=label, color=color, **opts)
         if self.add_ax_labels:
             target.set_ax_label('x', 'Cycle Number')
             yunit = data.get_unit(col_y)
