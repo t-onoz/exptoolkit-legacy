@@ -68,8 +68,9 @@ def test_cache_behavior(tmp_structure):
 
     # add a file → check cache
     (tmp_structure / 'm002' / 'sample4.csv').write_text('10,11,12')
+    time.sleep(0.5) # wait for file creation
     os.stat(tmp_structure / 'm002')  # refresh mtime of a folder
-    time.sleep(0.1)
+    time.sleep(0.5)
     scanner.scan_and_sync(repo)
     # new file in repo
     names = [s for r in repo.iter_resources() for s in repo.samples_of(r)]
