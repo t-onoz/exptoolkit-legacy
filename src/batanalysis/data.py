@@ -30,7 +30,7 @@ class ChargeDischargeData(BaseData):
     step_energy = Column(pl.Float32, 'mWh', Role.EXTENSIVE)
     voltage = Column(pl.Float32, 'V', Role.INTENSIVE)
     dqdv = Column(pl.Float32, 'mAh/V', Role.EXTENSIVE)
-    dvdq = Column(pl.Float32, 'V/mAh', Role.EXTENSIVE)
+    dvdq = Column(pl.Float32, 'V/mAh', Role.INVERSE_EXTENSIVE)
 
 class CycleSummaryData(BaseData):
     cycle = Column(pl.UInt16, 'dimensionless', Role.INTENSIVE)
