@@ -53,7 +53,7 @@ def savgol_filter_np(
 
         for i in range(half):
             y[i] = edge[i] @ x[:window_length]
-            y[-i-1] = edge[i] @ x[-window_length:]
+            y[-i-1] = edge[i] @ x[-window_length:][::-1] * (-1)**deriv
 
         return y
     raise ValueError('only mode="interp" is supported.')
