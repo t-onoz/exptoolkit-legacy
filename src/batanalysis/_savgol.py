@@ -134,6 +134,27 @@ def _test_signal_shape_preservation():
     assert corr_after > corr_before
     print("[OK] shape preservation (correlation improved)")
 
+def _test_scipy_equivalence():
+    from scipy.signal import savgol_filter
+    np.random.seed(0)
+
+    x = np.linspace(0, 4 * np.pi, 200)
+    true = np.sin(x)
+
+    noise = np.random.normal(0, 0.033, size=x.shape)
+    noisy = true + noise
+
+    y_np = savgol_filter_np(noisy, 21, 3)
+    y_sp = savgol_filter(noisy, 21, 3)
+    assert np.isclose(y_np, y_sp).all()
+
+    deriv_y_np = savgol_filter_np(noisy, 21, 3, deriv=1)
+    deriv_y_sp = savgol_filter(noisy, 21, 3, deriv=1)
+    assert np.isclose(deriv_y_np, deriv_y_sp).all()
+
+    print("[OK] SciPy equivalence")
+
+
 def _plot_smoothing_demo():
     import matplotlib.pyplot as plt
 
@@ -188,6 +209,8 @@ if __name__ == "__main__":
 
     _test_noisy_smoothing()
     _test_signal_shape_preservation()
+
+    _test_scipy_equivalence()
 
 
     print("ALL TESTS PASSED")
