@@ -1,20 +1,19 @@
 from __future__ import annotations
 import enum
-from collections.abc import Mapping, Iterable, Sequence
+import typing as t
+from collections.abc import Mapping, Iterable
 from collections import OrderedDict
 from types import MappingProxyType
 from dataclasses import dataclass, field
-from typing import Any, TYPE_CHECKING, overload, NamedTuple, TypeVar
 from copy import copy
 from functools import lru_cache
 from logging import getLogger
 
 import polars as pl
 
-if TYPE_CHECKING:
+if t.TYPE_CHECKING:
     import numpy as np
     import numpy.typing as npt
-    import pandas as pd
     from polars._typing import FrameInitTypes, IntoExprColumn
     from pint import UnitRegistry
 
@@ -26,7 +25,7 @@ def load_ureg() -> UnitRegistry:
     import pint
     return pint.UnitRegistry()
 
-M = TypeVar('M', bound="BaseData")
+M = t.TypeVar('M', bound="BaseData")
 
 class Role(enum.IntEnum):
     """Defines role of a Column.
@@ -37,12 +36,12 @@ class Role(enum.IntEnum):
     INTENSIVE = 0
     INVERSE_EXTENSIVE = -1
 
-class ColumnSpec(NamedTuple):
+class ColumnSpec(t.NamedTuple):
     role: int
     dtype: type[pl.DataType] | pl.DataType
     base_unit: str
 
-class NormPolicy(NamedTuple):
+class NormPolicy(t.NamedTuple):
     amount: float = float('nan')
     unit: str | None = None
 
@@ -69,13 +68,17 @@ class Column:
     role: int = Role.INTENSIVE
     name: str = field(init=False)
 
+    def __post_init__(self):
+        if isinstance(self.dtype, type):
+            self.dtype = self.dtype()
+
     def __set_name__(self, owner: type[BaseData], name: str):
         self.name = name
 
-    @overload
+    @t.overload
     def __get__(self, obj: None, owner: type[BaseData] | None) -> Column: ...
 
-    @overload
+    @t.overload
     def __get__(self, obj: BaseData, owner: type[BaseData] | None) -> pl.Series: ...
 
     def __get__(
@@ -86,16 +89,18 @@ class Column:
             return self
         return obj.table.get_column(self.name)
 
-    def __set__(self,
-                obj: BaseData,
-                value: pl.Expr | pl.Series | Sequence | npt.NDArray | pd.Series ):
+    def __set__(self, obj: BaseData, value: t.Any) -> None:
         if isinstance(value, (pl.Expr, pl.Series)):
             expr = value
+        elif (
+            hasattr(value, "__iter__")
+            and not isinstance(value, (str, bytes))
+        ):
+            # list, tuple, numpy.ndarray, pandas.Series, etc.
+            expr = pl.Series(self.name, value)
         else:
-            try:
-                expr = pl.Series(value)
-            except (TypeError, ValueError):
-                expr = pl.lit(value)
+            # scalar value
+            expr = pl.lit(value)
         obj.table = obj.table.with_columns(
             expr.cast(self.dtype).alias(self.name)
         )
@@ -110,7 +115,7 @@ class Column:
 
 class SchemaMixin:
     """mixin class for data classes with a predefined schema.
-    provides a class attribute _schema which is an ordered dict of column name and ColumnSpec."""
+    provides a class attribute `schema` which is an ordered dict of column name and ColumnSpec."""
     schema: Mapping[str, ColumnSpec]
 
     def __init_subclass__(cls, **kwargs):
@@ -124,7 +129,7 @@ class SchemaMixin:
 
 class BaseData(SchemaMixin):
     """Base class for representing data."""
-    metadata: dict[str, Any]
+    metadata: dict[str, t.Any]
     norm: NormPolicy
 
     def __init__(self,
@@ -132,7 +137,7 @@ class BaseData(SchemaMixin):
                  *,
                  normalization: tuple[float, str | None] \
                          = NormPolicy(float('nan'), None),
-                 metadata: Mapping[str, Any] | None = None,
+                 metadata: Mapping[str, t.Any] | None = None,
                  drop_extra_columns: bool = True
                  ):
         """
@@ -182,12 +187,16 @@ class BaseData(SchemaMixin):
         else:
             raise ValueError("\n".join(errors))
 
-    def is_col_ready(self, col: str):
+    def is_col_ready(self, col: str | Column):
+        if isinstance(col, Column):
+            col = col.name
         return not self.table[col].is_null().all()
 
-    def col_to_unit(self, col, unit: str | None) -> pl.Series:
+    def col_to_unit(self, col: str | Column, unit: str | None) -> pl.Series:
         """returns a column with its unit converted.
         if unit is None, returns the original column."""
+        if isinstance(col, Column):
+            col = col.name
         expr = self._to_unit_expr(col, unit)
         return self.table.select(expr).to_series()
 
@@ -195,9 +204,11 @@ class BaseData(SchemaMixin):
         exprs = [self._to_unit_expr(col, unit) for col, unit in units.items()]
         return self.table.with_columns(exprs)
 
-    def get_unit(self, column: str, fmt='~P') -> str:
+    def get_unit(self, column: str | Column, fmt='~P') -> str:
         """gets the unit associated with the given column.
         considers current normalization information."""
+        if isinstance(column, Column):
+            column = column.name
         ureg = load_ureg()
         base = self.schema[column].base_unit
         role = self.schema[column].role
@@ -230,7 +241,7 @@ class BaseData(SchemaMixin):
                 | list[bool]
                 | npt.NDArray[np.bool_]
             ),
-            **constraints: Any,
+            **constraints: t.Any,
         ) -> M:
         return self.with_table(
             self.table.filter(*predicates, **constraints)
