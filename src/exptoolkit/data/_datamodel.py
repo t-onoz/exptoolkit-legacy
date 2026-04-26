@@ -187,6 +187,8 @@ class BaseData(SchemaMixin):
         else:
             raise ValueError("\n".join(errors))
 
+    df = table # alias for convenience
+
     def is_col_ready(self, col: str | Column):
         if isinstance(col, Column):
             col = col.name
