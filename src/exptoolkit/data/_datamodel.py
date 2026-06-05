@@ -170,8 +170,10 @@ class BaseData(SchemaMixin):
         return self._table
 
     @table.setter
-    def table(self, table: pl.DataFrame):
+    def table(self, table: FrameInitTypes) -> None:
         """sets table data. checks if table schema is consistent with self."""
+        if not isinstance(table, pl.DataFrame):
+            table = pl.DataFrame(table)
         is_valid = True
         errors = ["schema does not match."]
         for key, spec in self.schema.items():
