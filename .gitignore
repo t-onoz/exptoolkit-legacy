@@ -8,3 +8,6 @@ build/
 dist/
 *.egg-info/
 .venv*/
+examples/*.xlsx
+examples/*.csv
+examples/*.zip

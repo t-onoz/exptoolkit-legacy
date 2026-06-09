@@ -15,3 +15,9 @@ def test_with_table_copy(data):
 
     b.metadata["new"] = 1
     assert "new" not in data.metadata
+
+def test_with_table_nocopy(data):
+    b = data.with_table(data.table, copy_metadata=False)
+
+    b.metadata["new"] = 1
+    assert "new" in data.metadata
