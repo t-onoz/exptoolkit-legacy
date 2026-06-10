@@ -435,9 +435,6 @@ def normalize_json_value(value) -> JSONScalar | JSONList | JSONDict:
         if isinstance(value, pd.DataFrame):
             _warn_conversion(value, 'dict')
             return JSONDict(value.to_dict(orient='list'))
-        if isinstance(value, pd.DataFrame):
-            _warn_conversion(value, 'dict')
-            return JSONDict(value.to_dict(orient='list'))
 
     # ---------- Unsupported types ---------
     raise TypeError(
