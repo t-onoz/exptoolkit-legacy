@@ -132,6 +132,11 @@ class SchemaMixin:
     """mixin class for data classes with a predefined schema.
     provides a class attribute `schema` which is an ordered dict of column name and ColumnSpec."""
     schema: Mapping[str, ColumnSpec]
+    _RESERVED_ATTR_NAMES = frozenset({
+        'col_to_unit', 'denormalize', 'df', 'df_to_units',
+        'downsample', 'export_csv', 'filter', 'get_unit', 'is_col_ready',
+        'load', 'metadata', 'norm', 'normalize', 'save', 'schema', 'table', 'with_table'
+    })
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -139,6 +144,8 @@ class SchemaMixin:
         for base in reversed(cls.__mro__):
             for attrname, attrval in base.__dict__.items():
                 if isinstance(attrval, Column):
+                    if attrname in cls._RESERVED_ATTR_NAMES:
+                        raise ValueError(f"Column name {attrname!r} is reserved and cannot be used.")
                     schema[attrname] = attrval.get_spec()
         cls.schema = MappingProxyType(schema)
 

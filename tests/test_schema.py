@@ -1,7 +1,8 @@
+import pytest
 import polars as pl
+from exptoolkit.data import BaseData, Column
 
 def test_schema_order():
-    from exptoolkit.data import BaseData, Column
 
     class A(BaseData):
         x = Column(pl.Float64)
@@ -13,7 +14,6 @@ def test_schema_order():
 
 
 def test_missing_column_filled():
-    from exptoolkit.data import BaseData, Column
 
     class A(BaseData):
         x = Column(pl.Float64)
@@ -33,3 +33,50 @@ def test_drop_extra(sample_df):
     d = SampleData(df, drop_extra_columns=False)
 
     assert "extra" in d.table.columns
+
+
+def test_schema_creation():
+    class Data(BaseData):
+        a = Column(pl.Int64)
+        b = Column(pl.Float64)
+
+    assert list(Data.schema) == ["a", "b"]
+
+
+def test_schema_inheritance():
+    class A(BaseData):
+        a = Column(pl.Int64)
+
+    class B(A):
+        b = Column(pl.Float64)
+
+    assert list(B.schema) == ["a", "b"]
+
+
+def test_column_override():
+    class A(BaseData):
+        x = Column(pl.Int64)
+
+    class B(A):
+        x = Column(pl.Float64)
+
+    assert list(B.schema) == ["x"]
+    assert B.schema["x"].dtype == pl.Float64
+
+
+@pytest.mark.parametrize(
+    "reserved_name",
+    sorted(BaseData._RESERVED_ATTR_NAMES),
+)
+def test_reserved_names(reserved_name):
+    with pytest.raises(
+        ValueError,
+        match=r"is reserved and cannot be used",
+    ):
+        type(
+            "TestData",
+            (BaseData,),
+            {
+                reserved_name: Column(pl.Int64),
+            },
+        )
