@@ -1,4 +1,5 @@
 from __future__ import annotations
+import math
 from typing import cast, Literal, TYPE_CHECKING
 from logging import getLogger
 import polars as pl
@@ -255,44 +256,73 @@ def chargedischarge_to_cycle(
 
 def calc_dcr(
     data: ChargeDischargeData,
-    t_extract: list[float] | None = None,
+    t_extract: list[float] | Literal['last'] | None = None,
     threshold: float = 0.1,
-    current_eps: float = 1e-4
+    current_eps: float = 1e-4,
     ) -> pl.DataFrame:
     """
-    電流ステップを検出し、DCRを計算する。計算結果はDataFrameとして返す。
-    DataFrameは下記の列を含む。
-        - pulse_id: 電流パルスの通し番号
-        - pulse_type: 電流パルスの分類（後述）
-        - cycle: 電流ステップ開始時点のサイクル番号
-        - step: 電流ステップ開始時点のステップ番号
-        - t0: 電流ステップ開始時点の経過時間 (s)
-        - V0: 電流ステップ開始直前の電圧 (V)
-        - I0: 電流ステップ開始直前の電流 (mA/[amount])
-        - Q0: 電流ステップ開始時点の積算容量 (mAh/[amount])
-        - Δt: 電流ステップ開始時点からの経過時間 (s)
-        - ΔV: 各時点での電圧とV0の差 (V)
-        - ΔI: 各時点での電流値とI0の差 (mA/[amount])
-        - R: DCR (Ω・[amount])
-    t_extractを指定した場合、追加で下記の列も含む。
-        - Δt_nearest:
+    電流ステップを検出し、DCRを計算する。
 
-    以下の2条件を満たしたとき、電流ステップの開始点とみなされる。
-        1. 直前のデータ行からの電流値の変動が `threshold` mA/[amount] より大きい
-        2. 直後のデータ行での電流値の変動が `current_eps` mA/[amount] 未満（すなわち、定電流である）
+    Parameters
+    ----------
+    data
+        充放電データ。
+    t_extract
+        DCRを抽出する時刻。
+        - list[float]:  指定した経過時間におけるDCRを返す
+        - 'last':       検出された各電流ステップの最終点におけるDCRを返す
+        - None:         電流ステップ内の全データ点についてDCRを返す
+    threshold
+        電流ステップ検出に用いる電流変化量の閾値 (mA/[amount])。
+    current_eps
+        電流値を0とみなす閾値 (mA/[amount])。
 
-    電流ステップはその電流値によって３種に分類される。
-        - relax: 電流値が `current_eps` mA/[amount] 未満
-        - pulse(+): 電流値が `current_eps` 以上、かつ直前の電流値より大きい
-        - pulse(-): 電流値が `current_eps` 以上、かつ直前の電流値より小さい
+    Notes
+    -----
+    - 電流ステップ開始点は、以下の両方の条件を満たす最初のデータ点とする。
 
-    t_extractに数値のリストを指定した場合、指定した経過時間におけるΔV, Rを計算する。
-    計算は時間について線形補間したΔVを基に行われる。
+        1. 直前のデータ点からの電流変化量が ``threshold`` より大きい
+        2. 直後のデータ点との電流変化量が ``current_eps`` 未満である（定電流区間の開始点）
+
+    - 電流ステップの終了点は、電流値の変化が ``current_eps`` 以上となる最初のデータ点とする（定電流区間の終了点）。
+
+    - 検出された電流ステップは次のように分類される。
+        - ``relax``:    ステップ後の電流絶対値が ``current_eps`` 未満
+        - ``pulse(+)``: ステップ後の電流値がステップ開始直前の電流値(I0)より大きい（充電パルス）
+        - ``pulse(-)``: ステップ後の電流値がステップ開始直前の電流値(I0)より小さい（放電パルス）
+
+    - t_extract に list[float] を指定した場合、ΔV は時間に対して線形補間して求められる。DCR は補間後の ΔV を用いて計算される。
+      ステップの幅より長い時間を指定した場合、その差が10%以下であれば端点を用い、それ以上ならデータが破棄される。
+    Returns
+    -------
+    pl.DataFrame
+
+    常に含まれる列:
+        pulse_id    電流パルスの通し番号
+        pulse_type  電流パルスの分類
+        cycle       ステップ開始時のサイクル番号
+        step        ステップ開始時のステップ番号
+        t0          推定された電流ステップ開始時刻 (s)
+                    電流ステップがstep切替と同時に発生した場合はstep開始時刻を使用し、
+                    それ以外の場合はステップ検出点の時刻を使用する
+        V0          ステップ開始直前の電圧 (V)
+        I0          ステップ開始直前の電流 (mA/[amount])
+        Q0          ステップ開始直前の積算容量 (mAh/[amount])
+        Δt          ステップ開始からの経過時間 (s)
+        ΔV          V0からの電圧変化 (V)
+        ΔI          I0からの電流変化 (mA/[amount])
+        DCR         DCR (Ω・[amount])
+        DCR_raw     DCR (Ω)
+                    normalizeされていない抵抗値。dataがnormalizeされている場合、DCRとDCR_rawの値は異なる。
+
+    t_extract が list[float] の場合のみ追加される列:
+        Δt_nearest  補間に使用した前後データ点のうち、最も近いデータ点におけるΔt (s)。
+                    補間結果の信頼性の目安として利用可能。
     """
     cls = ChargeDischargeData
     df = data.table
 
-    cols = ['pulse_id', 'pulse_type', 'cycle', 'step', 't0', 'V0', 'I0', 'Q0', 'Δt', 'ΔI', 'ΔV', 'DCR']
+    cols = ['pulse_id', 'pulse_type', 'cycle', 'step', 't0', 'V0', 'I0', 'Q0', 'Δt', 'ΔI', 'ΔV', 'DCR', 'DCR_raw']
     if t_extract:
         cols.append('Δt_nearest')
 
@@ -301,24 +331,28 @@ def calc_dcr(
         cls.current.expr.shift(1).alias("I_prev"),
         cls.current.expr.shift(-1).alias("I_next"),
         cls.voltage.expr.shift(1).alias("V_prev"),
+        cls.capacity.expr.shift(1).alias("Q_prev"),
     ]).with_columns([
         # 条件1, 2をチェックし、ステップ開始点をマーキング
         (((cls.current.expr - pl.col("I_prev")).abs() > threshold)
             & ((cls.current.expr - pl.col("I_next")).abs() < current_eps)
-        ).alias('is_step'),
+        ).alias('is_step_start'),
     ]).with_columns([
         # t0 ~ I0 の計算
         # t0 は電流パルス開始の瞬間の時刻。
-        pl.col('is_step').cum_sum().alias('pulse_id'),
-        pl.when(pl.col('is_step')).then(cls.cycle.expr).forward_fill().alias('cycle'),
-        pl.when(pl.col('is_step')).then(cls.step.expr).forward_fill().alias('step'),
-        pl.when(pl.col('is_step')).then(
+        pl.col('is_step_start').cum_sum().alias('pulse_id'),
+        pl.when(pl.col('is_step_start')).then(cls.cycle.expr).forward_fill().alias('cycle'),
+        pl.when(pl.col('is_step_start')).then(cls.step.expr).forward_fill().alias('step'),
+        pl.when(pl.col('is_step_start')).then(
+            # 電流ステップ開始の瞬間の累計時刻を求める。
+            # 電流ステップ開始点が step (プログラム上の区切り) の切り替わり点でもあるなら、累計時刻から step_time を引けば良い。
+            # そうでない場合、開始点は推測不能なので累計時刻をそのまま使う。
             cls.time.expr
-            + pl.when(cls.step.expr.shift() != cls.step.expr).then(cls.step_time.expr).fill_null(0.0)
+            - pl.when(cls.step.expr.shift() != cls.step.expr).then(cls.step_time.expr).fill_null(0.0)
         ).forward_fill().alias('t0'),
-        pl.when(pl.col('is_step')).then(pl.col("V_prev")).forward_fill().alias('V0'),
-        pl.when(pl.col('is_step')).then(cls.capacity.expr).forward_fill().alias('Q0'),
-        pl.when(pl.col('is_step')).then(pl.col("I_prev")).forward_fill().alias('I0'),
+        pl.when(pl.col('is_step_start')).then(pl.col("V_prev")).forward_fill().alias('V0'),
+        pl.when(pl.col('is_step_start')).then(pl.col("Q_prev")).forward_fill().alias('Q0'),
+        pl.when(pl.col('is_step_start')).then(pl.col("I_prev")).forward_fill().alias('I0'),
     ]).with_columns([
         # Δt ～ ΔVの計算。
         # Rはt_extractの処理をしてから計算する。
@@ -333,13 +367,18 @@ def calc_dcr(
             .over('pulse_id'),
     )
 
-    if t_extract:
+    if t_extract == 'last':
+        df = df.group_by('pulse_id', maintain_order=True).last()
+    elif t_extract is not None:
+        if not t_extract:
+            raise ValueError("t_extract is empty.")
         # t_extractの秒数のデータを取り出す（線形補間）
+        TIME_TOLERANCE = 0.9
         t_df = pl.DataFrame({"t_star": t_extract})
         df = (
             df
             .join(t_df, how='cross')
-            .filter(pl.col('Δt').max().over('pulse_id') >= pl.col('t_star'))
+            .filter(pl.col('Δt').max().over('pulse_id') >= pl.col('t_star') * TIME_TOLERANCE)
             .group_by('pulse_id', 't_star')
             .map_groups(_interpolate_dcr)
             .group_by(['pulse_id', 't_star'])
@@ -349,9 +388,15 @@ def calc_dcr(
             .sort(['pulse_id', 't_star'])
         )
 
+    if (data.norm.amount is None) or (not math.isfinite(data.norm.amount)):
+        _norm_factor = 1.0
+    else:
+        _norm_factor = data.norm.amount
+
     df = df.with_columns([
         (pl.col('ΔV') / pl.col('ΔI') * 1000).alias('DCR'),
     ]).with_columns(
+        (pl.col('DCR') / _norm_factor).alias('DCR_raw'),
         pl.coalesce(
             pl.when(cls.current.expr.abs() < current_eps).then(pl.lit('relax')),
             pl.when(cls.current.expr > pl.col('I0')).then(pl.lit('pulse(+)')),
@@ -371,7 +416,6 @@ def _interpolate_dcr(g: pl.DataFrame):
     for col in ['Δt', 'ΔI', 'ΔV']:
         exprs.append(pl.Series(col, np.interp(x_on, x, g[col]), dtype=g[col].dtype))
     return g.with_columns(exprs)
-
 
 
 def calc_z_theta(data: EISData):
