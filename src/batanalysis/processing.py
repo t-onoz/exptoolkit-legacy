@@ -171,6 +171,7 @@ def _differentiate_step(g: pl.DataFrame, window_in_volt, polyorder) -> pl.DataFr
 def chargedischarge_to_cycle(
     data: ChargeDischargeData,
     base: Literal['first', 'max'] = 'first',
+    copy_metadata: bool = True
     ) -> CycleSummaryData:
     """_summary_
 
@@ -252,7 +253,11 @@ def chargedischarge_to_cycle(
                 .alias(csd.energy_efficiency.name),
         )
     )
-    return CycleSummaryData(new_table)
+    return CycleSummaryData(
+        new_table,
+        normalization=data.norm,
+        metadata=data.metadata.copy() if copy_metadata else None
+    )
 
 def calc_dcr(
     data: ChargeDischargeData,
