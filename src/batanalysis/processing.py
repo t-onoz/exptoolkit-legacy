@@ -124,6 +124,9 @@ def _differentiate_step(g: pl.DataFrame, window_in_volt, polyorder) -> pl.DataFr
             pl.lit(None, dtype=cls.dvdq.dtype).alias(cls.dvdq.name),
         )
 
+    cycle = g[cls.cycle.name].first()
+    step = g[cls.step.name].first()
+
     try:
         if not g[cls.state.name].is_in(['charge', 'discharge']).all():
             return _none()
@@ -137,8 +140,6 @@ def _differentiate_step(g: pl.DataFrame, window_in_volt, polyorder) -> pl.DataFr
         mask = np.abs(v - v[-1]) >= 0.005
         v_ = v[mask]
         q_ = q[mask]
-        cycle = g[cls.cycle.name].first()
-        step = g[cls.step.name].first()
 
         # should be placed before np.nanmax(v_) because if v_ is empty, np.nanmax(v_) will raise ValueError.
         if len(v_) < 2:
