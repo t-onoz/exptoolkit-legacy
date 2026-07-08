@@ -135,34 +135,42 @@ def _differentiate_step(g: pl.DataFrame, window_in_volt, polyorder) -> pl.DataFr
     mask = np.abs(v - v[-1]) >= 0.005
     v_ = v[mask]
     q_ = q[mask]
-
     cycle = g[cls.cycle.name].first()
     step = g[cls.step.name].first()
 
-    # set window length based on voltage range and number of data points
-    v_span = np.nanmax(v_) - np.nanmin(v_)
-
-    if window_in_volt >= v_span:
-        logger.warning('Skipping (cycle, step) = (%s, %s) because voltage span is too small (%s).',
-                       cycle, step, v_span)
+    # should be placed before np.nanmax(v_) because if v_ is empty, np.nanmax(v_) will raise ValueError.
+    if len(v_) < 2:
+        logger.warning(
+            'Skipping differentiation for (cycle, step) = (%s, %s) because there are not enough data points (%s)',
+            cycle, step, len(v_)
+        )
         return _none()
 
-    wl = int(len(v_) * window_in_volt / v_span)
+    # set window length based on voltage range and number of data points
+    v_span = np.nanmax(v_) - np.nanmin(v_)
+    try:
+        wl = int(len(v_) * window_in_volt / v_span)
+    except (OverflowError, ZeroDivisionError, ValueError):
+        wl = 0
+
     if wl % 2 == 0:
         wl = wl - 1
 
-    if wl <= polyorder:
-        logger.warning('Skipping (cycle, step) = (%s, %s) because window_length is too small (%s)',
-                       cycle, step, wl)
-        return _none()
+    if 0 < polyorder < wl <= len(v_):
+        logger.info('window_length of (cycle, step) = (%s, %s): %s',
+                    cycle, step, wl)
+        dq = savgol_filter_np(q_, window_length=wl, polyorder=polyorder, deriv=1)
+        dv = savgol_filter_np(v_, window_length=wl, polyorder=polyorder, deriv=1)
+    else:
+        logger.warning(
+            'Disable smoothing for (cycle, step) = (%s, %s) because window_length is too large/small (%s)',
+            cycle, step, wl
+        )
+        dq = np.gradient(q_)
+        dv = np.gradient(v_)
 
-    logger.info('window_length of (cycle, step) = (%s, %s): %s',
-                cycle, step, wl)
-    dq = savgol_filter_np(q_, window_length=wl, polyorder=polyorder, deriv=1)
-    dv = savgol_filter_np(v_, window_length=wl, polyorder=polyorder, deriv=1)
     dqdv_full[mask] = dq / dv
     dvdq_full[mask] = dv / dq
-
     return g.with_columns(
         pl.Series(cls.dqdv.name, dqdv_full, dtype=cls.dqdv.dtype).fill_nan(None),
         pl.Series(cls.dvdq.name, dvdq_full, dtype=cls.dvdq.dtype).fill_nan(None),
