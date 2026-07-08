@@ -115,6 +115,7 @@ def differentiate(
     )
 
 def _differentiate_step(g: pl.DataFrame, window_in_volt, polyorder) -> pl.DataFrame:
+    """Called from `polars.DataFrame.group_by(...).map_groups()`."""
     cls = ChargeDischargeData
 
     def _none():
@@ -123,58 +124,66 @@ def _differentiate_step(g: pl.DataFrame, window_in_volt, polyorder) -> pl.DataFr
             pl.lit(None, dtype=cls.dvdq.dtype).alias(cls.dvdq.name),
         )
 
-    if not g[cls.state.name].is_in(['charge', 'discharge']).all():
-        return _none()
-
-    q = g[cls.step_capacity.name].to_numpy()
-    v = g[cls.voltage.name].to_numpy()
-    dqdv_full = np.full_like(v, np.nan)
-    dvdq_full = np.full_like(v, np.nan)
-
-    # exclude constant voltage region
-    mask = np.abs(v - v[-1]) >= 0.005
-    v_ = v[mask]
-    q_ = q[mask]
-    cycle = g[cls.cycle.name].first()
-    step = g[cls.step.name].first()
-
-    # should be placed before np.nanmax(v_) because if v_ is empty, np.nanmax(v_) will raise ValueError.
-    if len(v_) < 2:
-        logger.warning(
-            'Skipping differentiation for (cycle, step) = (%s, %s) because there are not enough data points (%s)',
-            cycle, step, len(v_)
-        )
-        return _none()
-
-    # set window length based on voltage range and number of data points
-    v_span = np.nanmax(v_) - np.nanmin(v_)
     try:
-        wl = int(len(v_) * window_in_volt / v_span)
-    except (OverflowError, ZeroDivisionError, ValueError):
-        wl = 0
+        if not g[cls.state.name].is_in(['charge', 'discharge']).all():
+            return _none()
 
-    if wl % 2 == 0:
-        wl = wl - 1
+        q = g[cls.step_capacity.name].to_numpy()
+        v = g[cls.voltage.name].to_numpy()
+        dqdv_full = np.full_like(v, np.nan)
+        dvdq_full = np.full_like(v, np.nan)
 
-    if 0 < polyorder < wl <= len(v_):
-        logger.info('window_length of (cycle, step) = (%s, %s): %s',
-                    cycle, step, wl)
-        dq = savgol_filter_np(q_, window_length=wl, polyorder=polyorder, deriv=1)
-        dv = savgol_filter_np(v_, window_length=wl, polyorder=polyorder, deriv=1)
-    else:
-        logger.warning(
-            'Disable smoothing for (cycle, step) = (%s, %s) because window_length is too large/small (%s)',
-            cycle, step, wl
+        # exclude constant voltage region
+        mask = np.abs(v - v[-1]) >= 0.005
+        v_ = v[mask]
+        q_ = q[mask]
+        cycle = g[cls.cycle.name].first()
+        step = g[cls.step.name].first()
+
+        # should be placed before np.nanmax(v_) because if v_ is empty, np.nanmax(v_) will raise ValueError.
+        if len(v_) < 2:
+            logger.warning(
+                'Skipping differentiation for (cycle, step) = (%s, %s) because there are not enough data points (%s)',
+                cycle, step, len(v_)
+            )
+            return _none()
+
+        # set window length based on voltage range and number of data points
+        v_span = np.nanmax(v_) - np.nanmin(v_)
+        try:
+            wl = int(len(v_) * window_in_volt / v_span)
+        except (OverflowError, ZeroDivisionError, ValueError):
+            wl = 0
+
+        if wl % 2 == 0:
+            wl = wl - 1
+
+        if 0 < polyorder < wl <= len(v_):
+            logger.info('window_length of (cycle, step) = (%s, %s): %s',
+                        cycle, step, wl)
+            dq = savgol_filter_np(q_, window_length=wl, polyorder=polyorder, deriv=1)
+            dv = savgol_filter_np(v_, window_length=wl, polyorder=polyorder, deriv=1)
+        else:
+            logger.warning(
+                'Disable smoothing for (cycle, step) = (%s, %s) because window_length is too large/small (%s)',
+                cycle, step, wl
+            )
+            dq = np.gradient(q_)
+            dv = np.gradient(v_)
+
+        dqdv_full[mask] = dq / dv
+        dvdq_full[mask] = dv / dq
+        return g.with_columns(
+            pl.Series(cls.dqdv.name, dqdv_full, dtype=cls.dqdv.dtype).fill_nan(None),
+            pl.Series(cls.dvdq.name, dvdq_full, dtype=cls.dvdq.dtype).fill_nan(None),
         )
-        dq = np.gradient(q_)
-        dv = np.gradient(v_)
-
-    dqdv_full[mask] = dq / dv
-    dvdq_full[mask] = dv / dq
-    return g.with_columns(
-        pl.Series(cls.dqdv.name, dqdv_full, dtype=cls.dqdv.dtype).fill_nan(None),
-        pl.Series(cls.dvdq.name, dvdq_full, dtype=cls.dvdq.dtype).fill_nan(None),
-    )
+    except Exception:
+        # Catch all exceptions because map_groups hides the original traceback.
+        logger.exception(
+            'Failed to differentiate for (cycle, step) = (%s, %s)',
+            cycle, step
+        )
+        return _none()
 
 def chargedischarge_to_cycle(
     data: ChargeDischargeData,
