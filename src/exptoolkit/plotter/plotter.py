@@ -1,6 +1,6 @@
 from __future__ import annotations
 from string import capwords
-from typing import Protocol, TypeVar, TYPE_CHECKING, Any
+from typing import Protocol, TypeVar, TYPE_CHECKING, Any, Callable, Hashable
 from abc import abstractmethod
 from dataclasses import dataclass
 
@@ -52,3 +52,33 @@ class XyPlotter(Plotter[BaseData]):
             ylabel = f"{capwords(self.ycol)} ({yunit or '-'})"
             target.set_ax_label("x", xlabel)
             target.set_ax_label("y", ylabel)
+
+
+class TargetManager:
+    """Manage and cache plotting targets.
+
+    The TargetManager holds a mapping of (plot_name, group_key) -> target created
+    by the provided target_factory. Use get(data, plot_name=...) to
+    obtain a target for a specific data grouping; a new target is created on
+    first request and reused thereafter.
+    """
+    def __init__(
+        self,
+        target_factory: Callable[[], TargetLike],
+        key_func: Callable[[BaseData], Hashable],
+    ) -> None:
+        self.target_factory = target_factory
+        self.targets: dict[tuple[str, Hashable], TargetLike] = {}
+        self.key_func = key_func
+
+    def get(
+        self,
+        data: BaseData,
+        plot_name: str,
+    ) -> TargetLike:
+        group_key = self.key_func(data)
+        key = (plot_name, group_key)
+
+        if key not in self.targets:
+            self.targets[key] = self.target_factory()
+        return self.targets[key]
