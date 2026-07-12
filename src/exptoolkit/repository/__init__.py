@@ -13,3 +13,5 @@ from exptoolkit.repository._scanner import(
     ResourceScanner,
     DirectoryScanner,
 )
+
+__all__ = ['DataResource', 'ResourceRepo', 'ScanResult', 'ResourceScanner', 'DirectoryScanner']
