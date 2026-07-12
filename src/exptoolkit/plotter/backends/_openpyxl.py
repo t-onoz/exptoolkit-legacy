@@ -127,9 +127,14 @@ class OpenPyXlTarget(Target):
             return obj
         if isinstance(obj, Worksheet):
             return cls(ws=obj)
-        if isinstance(obj, tuple) and len(obj) == 2:
-            ws, chart = obj
-            if isinstance(ws, Worksheet) and isinstance(chart, (ScatterChart, type(None))):
+        if isinstance(obj, tuple):
+            ws, chart = None, None
+            for item in obj:
+                if isinstance(item, Worksheet):
+                    ws = item
+                if isinstance(item, ScatterChart):
+                    chart = item
+            if isinstance(ws, Worksheet):
                 return cls(ws=ws, chart=chart)
         raise TypeError(
             "Unrecognized object type for OpenPyXlTarget. "

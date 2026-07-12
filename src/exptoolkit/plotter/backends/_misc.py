@@ -17,9 +17,16 @@ if t.TYPE_CHECKING:
     from pyqtgraph import PlotWidget, PlotItem
     from openpyxl.worksheet.worksheet import Worksheet
     from openpyxl.chart import ScatterChart
+    from xlsxwriter import Workbook as XlsxWorkbook
+    from xlsxwriter.worksheet import Worksheet as XlsxWorksheet
+    from xlsxwriter.chart_scatter import ChartScatter as XlsxChartScatter
     TargetLike = t.Union[
-        Target, Axes, PlotlyFigure, tuple[PlotlyFigure, int, int],
-        PlotWidget, PlotItem,  Worksheet, tuple[Worksheet, t.Optional[ScatterChart]]
+        Target,
+        Axes,
+        PlotlyFigure, tuple[PlotlyFigure, int, int],
+        PlotWidget, PlotItem,
+        Worksheet, tuple[Worksheet, t.Optional[ScatterChart]],
+        tuple[XlsxWorksheet | XlsxChartScatter | XlsxWorkbook, ...],
         ]
 else:
     # At runtime, we don't need the specific types, so we can just use Any.
@@ -31,6 +38,7 @@ _registry: dict[str, tuple[str, str]] = {
     "plotly": ("exptoolkit.plotter.backends._plotly", "PlotlyTarget"),
     "pyqtgraph": ("exptoolkit.plotter.backends._pyqtgraph", "PyQtGraphTarget"),
     "openpyxl": ("exptoolkit.plotter.backends._openpyxl", "OpenPyXlTarget"),
+    "xlsxwriter": ("exptoolkit.plotter.backends._xlsxwriter", "XlsxWriterTarget"),
 }
 
 def get_target(obj: TargetLike) -> Target:
@@ -39,6 +47,8 @@ def get_target(obj: TargetLike) -> Target:
         return obj
     available_backends: list[str] = []
     for pkg_name, (module_name, cls_name) in _registry.items():
+        # Check if the package is available in the current environment.
+        # This would improve performance by avoiding unnecessary imports.
         if pkg_name not in sys.modules:
             continue
 
