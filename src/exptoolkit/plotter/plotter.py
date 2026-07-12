@@ -1,7 +1,7 @@
 from __future__ import annotations
 from string import capwords
-from typing import Protocol, TypeVar, TYPE_CHECKING, Any, Callable, Hashable
-from abc import abstractmethod
+from typing import Protocol, TypeVar, TYPE_CHECKING, Any, Hashable
+from abc import abstractmethod, ABC
 from dataclasses import dataclass
 
 from exptoolkit.data import BaseData
@@ -54,31 +54,37 @@ class XyPlotter(Plotter[BaseData]):
             target.set_ax_label("y", ylabel)
 
 
-class TargetManager:
-    """Manage and cache plotting targets.
+class TargetManager(ABC):
+    """Create and cache plotting targets.
 
-    The TargetManager holds a mapping of (plot_name, group_key) -> target created
-    by the provided target_factory. Use get(data, plot_name=...) to
-    obtain a target for a specific data grouping; a new target is created on
-    first request and reused thereafter.
+    `TargetManager` creates plotting targets on demand and reuses them
+    according to `plot_name` and a grouping key derived from the input data.
+
+    Subclasses implement `group_key()` and `factory()` to define the grouping
+    rule and target creation strategy.
     """
-    def __init__(
-        self,
-        target_factory: Callable[[], TargetLike],
-        key_func: Callable[[BaseData], Hashable],
-    ) -> None:
-        self.target_factory = target_factory
-        self.targets: dict[tuple[str, Hashable], TargetLike] = {}
-        self.key_func = key_func
+    def __init__(self) -> None:
+        self._targets: dict[tuple[str, Hashable], TargetLike] = {}
+
+    @abstractmethod
+    def group_key(self, data: BaseData) -> Hashable:
+        pass
+
+    @abstractmethod
+    def factory(self, *,
+        plot_name: str,
+        group_key: Any,
+    ) -> TargetLike:
+        pass
 
     def get(
         self,
         data: BaseData,
         plot_name: str,
     ) -> TargetLike:
-        group_key = self.key_func(data)
-        key = (plot_name, group_key)
+        group_key = self.group_key(data)
+        target_key = (plot_name, group_key)
 
-        if key not in self.targets:
-            self.targets[key] = self.target_factory()
-        return self.targets[key]
+        if target_key not in self._targets:
+            self._targets[target_key] = self.factory(group_key=group_key, plot_name=plot_name)
+        return self._targets[target_key]
