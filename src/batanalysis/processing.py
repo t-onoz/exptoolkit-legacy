@@ -346,7 +346,7 @@ def calc_dcr(
     df = data.table
 
     cols = ['pulse_id', 'pulse_type', 'cycle', 'step', 't0', 'V0', 'I0', 'Q0', 'Δt', 'ΔI', 'ΔV', 'DCR', 'DCR_raw']
-    if t_extract:
+    if (t_extract is not None) and (t_extract != 'last'):
         cols.append('Δt_nearest')
 
     df = df.with_columns([
