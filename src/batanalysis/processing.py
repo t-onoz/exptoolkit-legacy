@@ -346,7 +346,7 @@ def calc_dcr(
     df = data.table
 
     cols = ['pulse_id', 'pulse_type', 'cycle', 'step', 't0', 'V0', 'I0', 'Q0', 'Δt', 'ΔI', 'ΔV', 'DCR', 'DCR_raw']
-    if (t_extract is not None) and (t_extract != 'last'):
+    if t_extract:
         cols.append('Δt_nearest')
 
     df = df.with_columns([
@@ -371,7 +371,10 @@ def calc_dcr(
             # 電流ステップ開始点が step (プログラム上の区切り) の切り替わり点でもあるなら、累計時刻から step_time を引けば良い。
             # そうでない場合、開始点は推測不能なので累計時刻をそのまま使う。
             cls.time.expr
-            - pl.when(cls.step.expr.shift() != cls.step.expr).then(cls.step_time.expr).fill_null(0.0)
+            - pl.when(
+                (cls.step.expr.shift() != cls.step.expr)
+                |(cls.cycle.expr.shift() != cls.cycle.expr)
+                ).then(cls.step_time.expr).fill_null(0.0)
         ).forward_fill().alias('t0'),
         pl.when(pl.col('is_step_start')).then(pl.col("V_prev")).forward_fill().alias('V0'),
         pl.when(pl.col('is_step_start')).then(pl.col("Q_prev")).forward_fill().alias('Q0'),
