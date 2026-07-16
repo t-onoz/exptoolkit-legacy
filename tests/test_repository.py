@@ -228,3 +228,37 @@ def test_to_df_multiple_refs():
     assert set(df["ref"]) == {"f1", "f2"}
     assert df.shape[0] == 3
 
+
+def test_add_empty_samples_does_not_modify_repo():
+    repo = ResourceRepo()
+
+    with pytest.raises(ValueError, match="samples must not be empty"):
+        repo.add(
+            ref="file1",
+            measurement_id="M001",
+            samples=[],
+        )
+
+    repo._check_indexes()
+
+    assert len(repo._ref2d) == 0
+
+
+def test_add_empty_samples_keeps_existing_repo():
+    repo = ResourceRepo()
+
+    repo.add(
+        ref="file0",
+        measurement_id="M000",
+        samples="sample0",
+    )
+
+    with pytest.raises(ValueError):
+        repo.add(
+            ref="file1",
+            measurement_id="M001",
+            samples=[],
+        )
+
+    repo._check_indexes()
+    assert "file1" not in repo._ref2d

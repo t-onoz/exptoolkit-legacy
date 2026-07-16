@@ -73,15 +73,14 @@ class ResourceRepo:
                     f"DataResource {dr.ref} is already assigned to Measurement {existing_mid}, "
                     f"cannot reassign to {mid}."
                 )
-
-        self._ref2d[ref] = dr
-        self._ref2m[dr.ref] = mid
-        self._m2ref.setdefault(mid, set()).add(dr.ref)
-
         samples = [samples] if isinstance(samples, str) else samples
         if not samples:
             raise ValueError('samples must not be empty.')
 
+        # commit all data at once
+        self._ref2d[dr.ref] = dr
+        self._ref2m[dr.ref] = mid
+        self._m2ref.setdefault(mid, set()).add(dr.ref)
         for s in samples:
             self._sample2ref.setdefault(s, set()).add(dr.ref)
             self._ref2samples.setdefault(dr.ref, set()).add(s)
