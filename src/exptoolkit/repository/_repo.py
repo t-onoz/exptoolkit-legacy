@@ -34,6 +34,8 @@ class ResourceRepo:
         - Each DataResource belongs to exactly one MeasurementID (many-to-one).
         - Sample names can be shared across resources and measurements.
     """
+    _dump_version = '1.0.0'
+
     def __init__(self) -> None:
         self._ref2d: dict[str, DataResource] = {}
 
@@ -205,14 +207,18 @@ class ResourceRepo:
             for ref in ref_set:
                 assert s in self._ref2samples.get(ref, set()), f"{s!r} missing in _ref2samples[{ref!r}]"
 
-
-    def save(self, file: str | os.PathLike | t.IO[str], **json_kw) -> None:
-        """Save ResourceRepo to a JSON file."""
-        data: ResourceRepoData = {
+    def _to_dict(self) -> ResourceRepoData:
+        """Dumps internal index into a dictionary."""
+        return {
+            "dump_version": self._dump_version,
             "resources": [asdict(dr) for dr in self._ref2d.values()],
             "ref2m": dict(self._ref2m),
             "ref2samples": {ref: list(samples) for ref, samples in self._ref2samples.items()},
         }
+
+    def save(self, file: str | os.PathLike | t.IO[str], **json_kw):
+        """Save ResourceRepo to a JSON file. """
+        data: ResourceRepoData = self._to_dict()
         json_kw.setdefault("indent", 2)
         json_kw.setdefault("ensure_ascii", False)
         if isinstance(file, (str, os.PathLike)):
@@ -231,6 +237,10 @@ class ResourceRepo:
             data = json.load(file)
 
         repo = ResourceRepo()
+        # 0. check version
+        _ver = data.get('dump_version') or '1.0.0'
+        if _ver != repo._dump_version:
+            raise ValueError(f'json version mismatch (json: {_ver}, expected: {repo._dump_version})')
 
         # 1. resources
         for dr_dump in data["resources"]:
@@ -249,6 +259,8 @@ class ResourceRepo:
             repo._ref2samples.setdefault(ref, set()).update(samples)
             for s in samples:
                 repo._sample2ref.setdefault(s, set()).add(ref)
+
+        repo._check_indexes()
 
         return repo
 
@@ -300,6 +312,7 @@ class ResourceRepoData(t.TypedDict):
     - ref2m: mapping from resource ref to serialized MeasurementID.
     - ref2samples: mapping from resource ref to associated sample names.
     """
+    dump_version: str
     resources: list[dict[str, t.Any]]
     ref2m: dict[str, t.Any]
     ref2samples: dict[str, list[str]]
