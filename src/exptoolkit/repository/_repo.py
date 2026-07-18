@@ -5,6 +5,8 @@ import json
 import os
 from dataclasses import dataclass, asdict
 
+from exptoolkit.repository._utils import atomic_open
+
 @dataclass(frozen=True)
 class DataResource:
     """
@@ -222,7 +224,7 @@ class ResourceRepo:
         json_kw.setdefault("indent", 2)
         json_kw.setdefault("ensure_ascii", False)
         if isinstance(file, (str, os.PathLike)):
-            with open(file, "w", encoding='utf-8') as f:
+            with atomic_open(file, "w", encoding='utf-8') as f:
                 json.dump(data, f, **json_kw)
         else:
             json.dump(data, file, **json_kw)

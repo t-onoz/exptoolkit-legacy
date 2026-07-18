@@ -9,7 +9,9 @@ from urllib.parse import urlparse
 from pathlib import Path
 from logging import getLogger
 from pydantic import BaseModel, ConfigDict
+
 from exptoolkit.repository._repo import ResourceRepo
+from exptoolkit.repository._utils import atomic_open
 
 logger = getLogger(__name__)
 
@@ -75,6 +77,13 @@ class _CacheEntry(BaseModel):
     scanned_at: float
     results: list[ScanResult]
 
+class _CacheData(BaseModel):
+    version: str
+    root: Path
+    dir_regex: re.Pattern
+    file_regex: re.Pattern
+    entries: dict[str, _CacheEntry]
+
 class DirectoryScanner(ResourceScanner):
     """
     Example scanner for a directory with structure:
@@ -94,6 +103,7 @@ class DirectoryScanner(ResourceScanner):
 
     Uses per-measurement cache based on folder mtime.
     """
+    _version = '1.0.0'
 
     def __init__(self,
                  root: str | os.PathLike,
@@ -148,11 +158,11 @@ class DirectoryScanner(ResourceScanner):
                 # check cache
                 cache = self._cache.get(measurement_id)
                 if cache and abs(cache.mtime - mtime) < 1e-3:
-                    logger.info('read measurement %r from cache', measurement_id)
+                    logger.debug('read measurement %r from cache', measurement_id)
                     results.extend(cache.results)
                     continue
 
-                logger.info('read measurement %r from disk', measurement_id)
+                logger.debug('read measurement %r from disk', measurement_id)
 
                 # scan files
                 scanned = self._scan_measurement_dir(entry.path, measurement_id)
@@ -195,23 +205,55 @@ class DirectoryScanner(ResourceScanner):
 
         return results
 
+    def _dump_cache(self) -> _CacheData:
+        return _CacheData(
+            version=self._version,
+            root=self.root,
+            dir_regex=self.dir_regex,
+            file_regex=self.file_regex,
+            entries={mid: entry for mid, entry in self._cache.items()}
+        )
+
     def save_cache(self, file: str | os.PathLike | t.IO[str], **json_kw) -> None:
         """Save the cache as a JSON file."""
-        data: dict[str, dict[str, t.Any]]  = {
-            mid: entry.model_dump(mode='json') for mid, entry in self._cache.items()
-        }
+        data = self._dump_cache().model_dump(mode='json')
         json_kw.setdefault('indent', 2)
         json_kw.setdefault('ensure_ascii', False)
         if isinstance(file, (str, os.PathLike)):
-            with open(file, "w", encoding='utf-8') as f:
+            with atomic_open(file, "w", encoding='utf-8') as f:
                 json.dump(data, f, **json_kw)
         else:
             json.dump(data, file, **json_kw)
 
-    def load_cache(self, file: str | os.PathLike | t.IO[str]) -> None:
-        if isinstance(file, (str, os.PathLike)):
-            with open(file, "r", encoding='utf-8') as f:
-                data: dict[str, dict[str, t.Any]] = json.load(f)
-        else:
-            data = json.load(file)
-        self._cache.update({mid: _CacheEntry(**dct) for mid, dct in data.items()})
+    def load_cache(
+        self,
+        file: str | os.PathLike | t.IO[str],
+        strict: bool = False,
+    ) -> None:
+        """Load cache from a JSON file.
+
+        If strict is False, invalid cache files are ignored.
+        """
+        try:
+            if isinstance(file, (str, os.PathLike)):
+                with open(file, encoding="utf-8") as f:
+                    data = json.load(f)
+            else:
+                data = json.load(file)
+
+            cache = _CacheData.model_validate(data)
+
+            if (
+                cache.version != self._version
+                or cache.root != self.root
+                or cache.dir_regex != self.dir_regex
+                or cache.file_regex != self.file_regex
+            ):
+                raise ValueError("Cache metadata mismatch.")
+
+            self._cache = dict(cache.entries)
+
+        except Exception:
+            if strict:
+                raise
+            logger.warning("Failed to load cache: %s", file, exc_info=True)
