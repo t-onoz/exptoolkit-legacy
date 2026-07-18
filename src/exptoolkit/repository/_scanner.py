@@ -114,7 +114,8 @@ class DirectoryScanner(ResourceScanner):
                  f_sample: t.Callable[[os.DirEntry], str] = lambda e: os.path.splitext(e.name)[0],
                  f_type: t.Callable[[os.DirEntry], str | None] = lambda e: os.path.splitext(e.name)[1][1:] or None,
                  ):
-        self.root = Path(root).resolve()
+        # Ensure Windows short (8.3) temp paths are resolved to a canonical path by os.path.realpath()
+        self.root = Path(os.path.realpath(root))
         self._cache: dict[str, _CacheEntry] = {}
         self.dir_regex = re.compile(dir_regex)
         self.file_regex = re.compile(file_regex)
