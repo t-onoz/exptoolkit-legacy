@@ -6,7 +6,7 @@ import json
 import re
 from abc import ABC, abstractmethod
 from urllib.parse import urlparse
-from pathlib import Path
+from pathlib import Path, PurePath
 from logging import getLogger
 from pydantic import BaseModel, ConfigDict
 
@@ -73,13 +73,13 @@ class ResourceScanner(ABC):
                 repo.remove(ref)
 
 class _CacheEntry(BaseModel):
-    mtime: float
+    fingerprint: tuple
     scanned_at: float
     results: list[ScanResult]
 
 class _CacheData(BaseModel):
     version: str
-    root: Path
+    root: PurePath
     dir_regex: re.Pattern
     file_regex: re.Pattern
     entries: dict[str, _CacheEntry]
@@ -103,7 +103,7 @@ class DirectoryScanner(ResourceScanner):
 
     Uses per-measurement cache based on folder mtime.
     """
-    _version = '1.0.0'
+    _version = '1.1.0'
 
     def __init__(self,
                  root: str | os.PathLike,
@@ -114,8 +114,7 @@ class DirectoryScanner(ResourceScanner):
                  f_sample: t.Callable[[os.DirEntry], str] = lambda e: os.path.splitext(e.name)[0],
                  f_type: t.Callable[[os.DirEntry], str | None] = lambda e: os.path.splitext(e.name)[1][1:] or None,
                  ):
-        # Ensure Windows short (8.3) temp paths are resolved to a canonical path by os.path.realpath()
-        self.root = Path(os.path.realpath(root))
+        self.root = PurePath(os.path.abspath(root))
         self._cache: dict[str, _CacheEntry] = {}
         self.dir_regex = re.compile(dir_regex)
         self.file_regex = re.compile(file_regex)
@@ -130,7 +129,7 @@ class DirectoryScanner(ResourceScanner):
             # exclude http://, file://, etc.
             return False
 
-        p = Path(ref)
+        p = PurePath(ref)
         try:
             p.relative_to(self.root)
             return True
@@ -150,15 +149,10 @@ class DirectoryScanner(ResourceScanner):
 
                 measurement_id = self.f_mid(entry)
 
-                # NOTE:
-                # entry.stat() is fast but may return stale mtime (Windows / FS cache).
-                # This can occur even without concurrent writes (see CPython issue #85278).
-                # Calling os.stat(path) seems to refresh it; use that if strict correctness is needed.
-                mtime = entry.stat().st_mtime
-
                 # check cache
+                fingerprint = self.fingerprint(entry)
                 cache = self._cache.get(measurement_id)
-                if cache and abs(cache.mtime - mtime) < 1e-3:
+                if cache and cache.fingerprint == fingerprint:
                     logger.debug('read measurement %r from cache', measurement_id)
                     results.extend(cache.results)
                     continue
@@ -170,7 +164,7 @@ class DirectoryScanner(ResourceScanner):
 
                 # update cache
                 self._cache[measurement_id] = _CacheEntry(
-                    mtime=mtime,
+                    fingerprint=fingerprint,
                     scanned_at=time.time(),
                     results=scanned,
                 )
@@ -178,6 +172,17 @@ class DirectoryScanner(ResourceScanner):
                 results.extend(scanned)
 
         return results
+
+    @staticmethod
+    def fingerprint(e: os.DirEntry) -> tuple:
+        # DirEntry.stat() may return cached metadata on some platforms.
+        # If fresh metadata is required, use os.stat(e.path) instead.
+        st = e.stat()
+        return (
+            e.name,
+            st.st_ctime_ns,
+            st.st_mtime_ns,
+        )
 
     # --- internal ---
     def _scan_measurement_dir(self, d: str, measurement_id: str) -> list[ScanResult]:
@@ -258,3 +263,6 @@ class DirectoryScanner(ResourceScanner):
             if strict:
                 raise
             logger.warning("Failed to load cache: %s", file, exc_info=True)
+
+    def clear_cache(self):
+        self._cache = {}

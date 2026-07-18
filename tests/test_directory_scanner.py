@@ -2,8 +2,10 @@
 from __future__ import annotations
 import os
 import time
+import ctypes
+from unittest.mock import MagicMock
 import pytest
-from pathlib import Path
+from pathlib import Path, PurePath
 from tempfile import TemporaryDirectory
 from exptoolkit.repository import ResourceRepo, ScanResult, DirectoryScanner
 
@@ -22,6 +24,38 @@ def tmp_structure():
         os.stat(root / 'm001')
         os.stat(root / 'm002')
         yield root
+
+def assert_scan_uses_cache(scanner: DirectoryScanner):
+    """Assert that scan() uses only cached results."""
+    scanner._scan_measurement_dir = MagicMock(
+        side_effect=AssertionError("_scan_measurement_dir should not be called")
+    )
+
+    scanner.scan()
+    scanner._scan_measurement_dir.assert_not_called()
+
+def short_path(path: Path) -> Path:
+    """Convert path to DOS 8.3 path."""
+    if os.name != "nt":
+        pytest.skip("Windows only")
+
+    buf = ctypes.create_unicode_buffer(32768)
+
+    n = ctypes.windll.kernel32.GetShortPathNameW(
+        str(path),
+        buf,
+        len(buf),
+    )
+
+    if n == 0:
+        pytest.skip("8.3 short name is disabled")
+
+    return Path(buf.value)
+
+def test_scan_uses_cache(tmp_structure):
+    scanner = DirectoryScanner(tmp_structure)
+    scanner.scan()
+    assert_scan_uses_cache(scanner)
 
 def test_owns(tmp_structure):
     scanner = DirectoryScanner(tmp_structure)
@@ -58,18 +92,11 @@ def test_cache_behavior(tmp_structure):
     repo = ResourceRepo()
 
     scanner.scan_and_sync(repo)
-    mtime_before = {
-        mid: entry.mtime for mid, entry in scanner._cache.items()
-    }
-
-    scanner.scan_and_sync(repo)
-    mtime_after = {
-        mid: entry.mtime for mid, entry in scanner._cache.items()
-    }
-    assert mtime_before == mtime_after
 
     m002 = tmp_structure / 'm002'
     old_mtime = m002.stat().st_mtime
+
+    time.sleep(3)
 
     # add file
     (m002 / 'sample4.csv').write_text('10,11,12')
@@ -115,3 +142,31 @@ def test_save_load_cache(tmp_structure, tmp_path):
     assert set(new_scanner._cache.keys()) == set(scanner._cache.keys())
     for mid in scanner._cache:
         assert len(new_scanner._cache[mid].results) == len(scanner._cache[mid].results)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows only")
+def test_owns_with_83_path(tmp_path):
+    # make sure path contains a long component
+    long_root = tmp_path / "VeryLongDirectoryNameForShortPathTest"
+    long_root.mkdir()
+
+    # convert root to DOS path
+    dos_root = short_path(long_root)
+
+    # create files using DOS path
+    m001 = dos_root / "m001"
+    m001.mkdir()
+
+    sample = m001 / "sample1.csv"
+    sample.write_text("1,2,3")
+
+    # confirm test condition
+    assert "~" in str(dos_root)
+
+    repo = ResourceRepo()
+    scanner = DirectoryScanner(dos_root)
+    scanner.scan_and_sync(repo)
+
+    assert scanner.root == PurePath(os.path.abspath(dos_root))
+    assert scanner.owns(str(sample))
+    assert str(sample) in [res.ref for res in repo.iter_resources()]
