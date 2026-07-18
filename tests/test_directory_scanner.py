@@ -57,23 +57,37 @@ def test_cache_behavior(tmp_structure):
     scanner = DirectoryScanner(tmp_structure)
     repo = ResourceRepo()
 
-    # create cache
     scanner.scan_and_sync(repo)
-    mtime_before = {mid: entry.mtime for mid, entry in scanner._cache.items()}
+    mtime_before = {
+        mid: entry.mtime for mid, entry in scanner._cache.items()
+    }
 
-    # rescan
     scanner.scan_and_sync(repo)
-    mtime_after = {mid: entry.mtime for mid, entry in scanner._cache.items()}
+    mtime_after = {
+        mid: entry.mtime for mid, entry in scanner._cache.items()
+    }
     assert mtime_before == mtime_after
 
-    # add a file → check cache
-    (tmp_structure / 'm002' / 'sample4.csv').write_text('10,11,12')
-    time.sleep(0.5) # wait for file creation
-    os.stat(tmp_structure / 'm002')  # refresh mtime of a folder
-    time.sleep(0.5)
+    m002 = tmp_structure / 'm002'
+    old_mtime = m002.stat().st_mtime
+
+    # add file
+    (m002 / 'sample4.csv').write_text('10,11,12')
+
+    # wait until directory mtime changes
+    deadline = time.monotonic() + 10
+    while m002.stat().st_mtime == old_mtime:
+        if time.monotonic() > deadline:
+            raise TimeoutError("directory mtime did not update")
+        time.sleep(0.05)
+
     scanner.scan_and_sync(repo)
-    # new file in repo
-    names = [s for r in repo.iter_resources() for s in repo.samples_of(r)]
+
+    names = [
+        s
+        for r in repo.iter_resources()
+        for s in repo.samples_of(r)
+    ]
     assert 'sample4' in names
 
 def test_file_regex(tmp_structure):
