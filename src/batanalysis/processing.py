@@ -51,49 +51,88 @@ def detect_steps(data: ChargeDischargeData, recalc_time=True) -> None:
             (cls.time.expr - cls.time.expr.first().over(cls.cycle.expr)).alias(cls.cycle_time.name),
         )
 
-def integrate_capacity(data: ChargeDischargeData) -> None:
+def integrate_capacity(
+    data: ChargeDischargeData, *, skip_step=False, skip_cycle=False, skip_total=False
+) -> None:
     cls = ChargeDischargeData
-    if not data.is_col_ready('step'):
+    if not data.is_col_ready("step"):
         detect_steps(data)
-    data.table = data.table.with_columns(
-        # step capacity
-        _cumulative_trapezoid(cls.current.expr, cls.step_time.expr/3600, x0=0.0)
-            .over(cls.step.expr, cls.cycle.expr)
-            .cast(cls.step_capacity.dtype)
-            .alias(cls.step_capacity.name)
-        * pl.when(cls.state.expr == 'discharge').then(pl.lit(-1.)).otherwise(pl.lit(1.)),
-        # cycle capacity
-        _cumulative_trapezoid(cls.current.expr, cls.cycle_time.expr/3600, x0=0.0)
+    exprs = []
+    if not skip_step:
+        exprs.append(
+            (
+                _cumulative_trapezoid(
+                    cls.current.expr, cls.step_time.expr / 3600.0, x0=0.0
+                )
+                .over(cls.step.expr, cls.cycle.expr)
+                .cast(cls.step_capacity.dtype)
+                * pl.when(cls.state.expr == State.DISCHARGE)
+                .then(pl.lit(-1.0))
+                .otherwise(pl.lit(1.0))
+            ).alias(cls.step_capacity.name)
+        )
+    if not skip_cycle:
+        exprs.append(
+            _cumulative_trapezoid(
+                cls.current.expr, cls.cycle_time.expr / 3600.0, x0=0.0
+            )
             .over(cls.cycle.expr)
             .cast(cls.cycle_capacity.dtype)
-            .alias(cls.cycle_capacity.name),
-        # total capacity
-        _cumulative_trapezoid(cls.current.expr, cls.time.expr/3600, x0=0.0)
+            .alias(cls.cycle_capacity.name)
+        )
+    if not skip_total:
+        exprs.append(
+            _cumulative_trapezoid(cls.current.expr, cls.time.expr / 3600, x0=0.0)
             .cast(cls.capacity.dtype)
             .alias(cls.capacity.name)
-    )
+        )
 
-def integrate_energy(data: ChargeDischargeData) -> None:
+    if exprs:
+        data.table = data.table.with_columns(*exprs)
+
+
+def integrate_energy(
+    data: ChargeDischargeData, *, skip_step=False, skip_cycle=False, skip_total=False
+) -> None:
     cls = ChargeDischargeData
-    if not data.is_col_ready('step_capacity'):
-        integrate_capacity(data)
 
-    data.table = data.table.with_columns(
-        # step capacity
-        _cumulative_trapezoid(cls.voltage.expr, cls.step_capacity.expr, x0=0.0)
+    step_ready = skip_step or data.is_col_ready(cls.step_capacity)
+    cycle_ready = skip_cycle or data.is_col_ready(cls.cycle_capacity)
+    total_ready = skip_total or data.is_col_ready(cls.capacity)
+
+    if not (step_ready and cycle_ready and total_ready):
+        integrate_capacity(
+            data, 
+            skip_step=step_ready,
+            skip_cycle=cycle_ready,
+            skip_total=total_ready,
+        )
+
+    exprs = []
+    if not skip_step:
+        exprs.append(
+            _cumulative_trapezoid(cls.voltage.expr, cls.step_capacity.expr, x0=0.0)
             .over(cls.step.expr, cls.cycle.expr)
             .cast(cls.step_energy.dtype)
-            .alias(cls.step_energy.name),
-        # cycle capacity
-        _cumulative_trapezoid(cls.voltage.expr, cls.cycle_capacity.expr, x0=0.0)
+            .alias(cls.step_energy.name)
+        )
+    if not skip_cycle:
+        exprs.append(
+            _cumulative_trapezoid(cls.voltage.expr, cls.cycle_capacity.expr, x0=0.0)
             .over(cls.cycle.expr)
             .cast(cls.cycle_energy.dtype)
-            .alias(cls.cycle_energy.name),
-        # total capacity
-        _cumulative_trapezoid(cls.voltage.expr, cls.capacity.expr, x0=0.0)
+            .alias(cls.cycle_energy.name)
+        )
+    if not skip_total:
+        exprs.append(
+            _cumulative_trapezoid(cls.voltage.expr, cls.capacity.expr, x0=0.0)
             .cast(cls.energy.dtype)
             .alias(cls.energy.name)
-    )
+        )
+
+    if exprs:
+        data.table = data.table.with_columns(*exprs)
+
 
 def differentiate(
     data: ChargeDischargeData,
