@@ -33,6 +33,7 @@ dependencies = [
   "pydantic",
   "webcolors",
   "pint",
+  "xlsxwriter",
   "eval-type-backport ; python_version < \"3.9\"",
   "typing_extensions ; python_version < \"3.11\""
 ]

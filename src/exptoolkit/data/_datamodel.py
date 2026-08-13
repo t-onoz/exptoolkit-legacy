@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 import datetime
 import enum
 import json
@@ -12,14 +11,14 @@ from collections.abc import Iterable, Mapping, MutableMapping, MutableSequence, 
 from copy import copy, deepcopy
 from dataclasses import dataclass, field
 from functools import lru_cache
-from io import StringIO
 from logging import getLogger
-from pathlib import Path, PurePath
+from pathlib import PurePath
 from types import MappingProxyType
 from zipfile import ZIP_STORED, ZipFile
 
 import numpy as np
 import polars as pl
+from xlsxwriter import Workbook  # type: ignore
 
 if t.TYPE_CHECKING:
     import numpy.typing as npt
@@ -39,8 +38,6 @@ JSONValue = t.Union[JSONScalar, "list[JSONValue]", "dict[str, JSONValue]"]
 def load_ureg() -> UnitRegistry:
     import pint
     return pint.UnitRegistry()
-
-M = t.TypeVar('M', bound="BaseData")
 
 class Role(enum.IntEnum):
     """Defines role of a Column.
@@ -236,23 +233,22 @@ class BaseData(SchemaMixin):
 
         return cls(table, normalization=norm, metadata=metadata, drop_extra_columns=False)
 
-    def export_csv(self, path, encoding=None) -> None:
-        """exports the data to a CSV file."""
-        buffer = StringIO()
-        self.table.write_csv(buffer)
-        if not hasattr(path, "open"):
-            path = Path(path)
-        with path.open('w', encoding=encoding, newline='') as fp:
-            writer = csv.writer(fp)
-            writer.writerow(['[Metadata]'])
-            for key, val in self.metadata.items():
-                writer.writerow([key, str(val)])
-            writer.writerow(['[Normalization]'])
-            writer.writerow(self.norm)
-            writer.writerow(['[Units]'])
-            writer.writerow([self.get_unit(c) if c in self.schema else None for c in self.table.columns])
-            writer.writerow(['[Data]'])
-            fp.write(buffer.getvalue())
+    def export_excel(self, path, ws_table="table", ws_manifest="manifest") -> None:
+        """exports the data to a .xlsx file."""
+        manifest = {
+                'class': type(self).__name__,
+                'norm': tuple(self.norm),
+                'metadata': self.metadata.to_dict(),
+        }
+        with Workbook(path) as wb:
+            self.table.write_excel(wb, worksheet=ws_table)
+            ws = wb.add_worksheet(ws_manifest)
+            for i, (path_, obj) in enumerate(flatten_json(manifest)):
+                ws.write(i, 0, path_)
+                try:
+                    ws.write(i, 1, obj)
+                except TypeError:
+                    ws.write(i, 1, str(obj))
 
     @property
     def table(self) -> pl.DataFrame:
@@ -547,3 +543,27 @@ def _to_builtin(v) -> JSONValue:
     if isinstance(v, JSONList):
         return [_to_builtin(item) for item in v]
     return v
+
+
+def flatten_json(obj: t.Any, prefix="") -> list[tuple[str, t.Any]]:
+    rows = []
+
+    if isinstance(obj, dict):
+        if not obj:
+            rows.append((prefix, "{}"))
+        else:
+            for key, value in obj.items():
+                path = f"{prefix}.{key}" if prefix else str(key)
+                rows.extend(flatten_json(value, path))
+
+    elif isinstance(obj, (list, tuple)):
+        if not obj:
+            rows.append((prefix, "[]"))
+        else:
+            for i, value in enumerate(obj):
+                rows.extend(flatten_json(value, f"{prefix}[{i}]"))
+
+    else:
+        rows.append((prefix, obj))
+
+    return rows
