@@ -33,7 +33,8 @@ dependencies = [
   "pydantic",
   "webcolors",
   "pint",
-  "eval-type-backport ; python_version < \"3.9\""
+  "eval-type-backport ; python_version < \"3.9\"",
+  "typing_extensions ; python_version < \"3.11\""
 ]
 
 [tool.setuptools.packages.find]

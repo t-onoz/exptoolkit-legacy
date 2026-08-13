@@ -1,35 +1,35 @@
 from __future__ import annotations
+
+import csv
+import datetime
 import enum
 import json
 import sys
-import warnings
-import datetime
 import typing as t
-import csv
-from pathlib import Path, PurePath
-from io import StringIO
-from zipfile import ZipFile, ZIP_STORED
-from collections.abc import Mapping, Iterable, MutableMapping, MutableSequence, Sequence
+import warnings
 from collections import OrderedDict
-from types import MappingProxyType
-from dataclasses import dataclass, field
+from collections.abc import Iterable, Mapping, MutableMapping, MutableSequence, Sequence
 from copy import copy, deepcopy
+from dataclasses import dataclass, field
 from functools import lru_cache
+from io import StringIO
 from logging import getLogger
+from pathlib import Path, PurePath
+from types import MappingProxyType
+from zipfile import ZIP_STORED, ZipFile
 
 import numpy as np
 import polars as pl
 
 if t.TYPE_CHECKING:
     import numpy.typing as npt
-    from polars._typing import FrameInitTypes, IntoExprColumn
     from pint import UnitRegistry
+    from polars._typing import FrameInitTypes, IntoExprColumn
 
 logger = getLogger()
 
 class JSONSerializationWarning(UserWarning):
     """Warning for values converted during JSON serialization."""
-    pass
 
 JSONScalar = t.Union[None, bool, int, float, str]
 JSONValue = t.Union[JSONScalar, "list[JSONValue]", "dict[str, JSONValue]"]
@@ -205,7 +205,7 @@ class BaseData(SchemaMixin):
             )
 
     @classmethod
-    def load(cls: type[M], path) -> M:
+    def load(cls, path) -> t.Self:
         """loads the data from a .zip file."""
         with ZipFile(path, 'r') as zip_file:
             try:
@@ -316,11 +316,11 @@ class BaseData(SchemaMixin):
         norm = self.norm.unit or 'dimensionless'
         return f"{ureg.Unit(base) / ureg.Unit(norm)**role:{fmt}}"
 
-    def downsample(self: M, n: int, offset: int=0) -> M:
+    def downsample(self, n: int, offset: int=0) -> t.Self:
         """takes every n points with offset, and returns a new data object."""
         return self.with_table(self.table.gather_every(n, offset))
 
-    def normalize(self: M, norm_amount: float, norm_unit: str) -> M:
+    def normalize(self, norm_amount: float, norm_unit: str) -> t.Self:
         if self.norm.unit is not None:
             raise ValueError("data is already normalized")
         exprs = [
@@ -334,7 +334,7 @@ class BaseData(SchemaMixin):
         return new_data
 
     def filter(
-            self: M,
+            self,
             *predicates: (
                 IntoExprColumn
                 | Iterable[IntoExprColumn]
@@ -343,12 +343,12 @@ class BaseData(SchemaMixin):
                 | npt.NDArray[np.bool_]
             ),
             **constraints: t.Any,
-        ) -> M:
+        ) -> t.Self:
         return self.with_table(
             self.table.filter(*predicates, **constraints)
         )
 
-    def denormalize(self: M) -> M:
+    def denormalize(self) -> t.Self:
         if self.norm.unit is None:
             new_data =  copy(self)
             new_data.metadata = copy(self.metadata)
@@ -367,7 +367,7 @@ class BaseData(SchemaMixin):
             new_data.metadata = copy(self.metadata)
         return new_data
 
-    def with_table(self: M, table: pl.DataFrame, copy_metadata: bool=True) -> M:
+    def with_table(self, table: pl.DataFrame, copy_metadata: bool=True) -> t.Self:
         """switches table and returns a new data. copies metadata by default."""
         new_data = copy(self)
         new_data.table = table
@@ -447,7 +447,7 @@ def _warn_conversion(value, to_type: str, stacklevel=4) -> None:
 
 class JSONDict(MutableMapping):
     """A dict-like class that only accepts JSON-serializable values."""
-    def __init__(self, initial: t.Optional[t.Mapping[str, t.Any]]=None) -> None:
+    def __init__(self, initial: t.Mapping[str, t.Any] | None=None) -> None:
         self._data: dict[str, t.Any] = {}
         if initial is not None:
             for k, v in initial.items():
@@ -493,7 +493,7 @@ class JSONDict(MutableMapping):
         return result
 
 class JSONList(MutableSequence):
-    def __init__(self, initial: t.Optional[t.Iterable[t.Any]]=None):
+    def __init__(self, initial: t.Iterable[t.Any] | None=None):
         self._data: list[t.Any] = []
         if initial is not None:
             for v in initial:
