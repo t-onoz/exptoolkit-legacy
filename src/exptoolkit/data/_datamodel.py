@@ -27,56 +27,65 @@ if t.TYPE_CHECKING:
 
 logger = getLogger()
 
+
 class JSONSerializationWarning(UserWarning):
     """Warning for values converted during JSON serialization."""
 
+
 JSONScalar = t.Union[None, bool, int, float, str]
 JSONValue = t.Union[JSONScalar, "list[JSONValue]", "dict[str, JSONValue]"]
+
 
 # `import pint` takes some time, so perform lazy import
 @lru_cache
 def load_ureg() -> UnitRegistry:
     import pint
+
     return pint.UnitRegistry()
+
 
 class Role(enum.IntEnum):
     """Defines role of a Column.
     EXTENSIVE: value is proportional to the amount.
     INTENSIVE: value is independent of the amount.
     INVERSE_EXTENSIVE: value is inverse proportional to the amount."""
+
     EXTENSIVE = 1
     INTENSIVE = 0
     INVERSE_EXTENSIVE = -1
+
 
 class ColumnSpec(t.NamedTuple):
     role: int
     dtype: type[pl.DataType] | pl.DataType
     base_unit: str
 
+
 class NormPolicy(t.NamedTuple):
     amount: float | None = None
     unit: str | None = None
 
+
 @lru_cache(maxsize=1000)
 def conversion_factor(
-        base_unit: str | None,
-        normalize_unit: str | None,
-        to_unit: str | None,
-        role: int,
+    base_unit: str | None,
+    normalize_unit: str | None,
+    to_unit: str | None,
+    role: int,
 ) -> float | int:
     """returns a unit conversion factor.
     e.g. conversion_factor('m', 's', 'mm/s') -> 1000.0"""
     ureg = load_ureg()
-    base = base_unit or 'dimensionless'
-    norm = normalize_unit or 'dimensionless'
-    to = to_unit or 'dimensionless'
-    return (ureg.Quantity(1.0, base) / ureg.Quantity(1.0, norm)**role).to(to).magnitude
+    base = base_unit or "dimensionless"
+    norm = normalize_unit or "dimensionless"
+    to = to_unit or "dimensionless"
+    return (ureg.Quantity(1.0, base) / ureg.Quantity(1.0, norm) ** role).to(to).magnitude
 
 
 @dataclass
 class Column:
     dtype: type[pl.DataType] | pl.DataType
-    base_unit: str = 'dimensionless'
+    base_unit: str = "dimensionless"
     role: int = Role.INTENSIVE
     name: str = field(init=False)
 
@@ -94,8 +103,7 @@ class Column:
     def __get__(self, obj: BaseData, owner: type[BaseData] | None) -> pl.Series: ...
 
     def __get__(
-            self, obj: BaseData | None,
-            owner: type[BaseData] | None = None
+        self, obj: BaseData | None, owner: type[BaseData] | None = None
     ) -> Column | pl.Series:
         if obj is None:
             return self
@@ -104,18 +112,13 @@ class Column:
     def __set__(self, obj: BaseData, value: t.Any) -> None:
         if isinstance(value, (pl.Expr, pl.Series)):
             expr = value
-        elif (
-            hasattr(value, "__iter__")
-            and not isinstance(value, (str, bytes))
-        ):
+        elif hasattr(value, "__iter__") and not isinstance(value, (str, bytes)):
             # list, tuple, numpy.ndarray, pandas.Series, etc.
             expr = pl.Series(self.name, value)
         else:
             # scalar value
             expr = pl.lit(value)
-        obj.table = obj.table.with_columns(
-            expr.cast(self.dtype).alias(self.name)
-        )
+        obj.table = obj.table.with_columns(expr.cast(self.dtype).alias(self.name))
 
     def get_spec(self) -> ColumnSpec:
         return ColumnSpec(role=self.role, dtype=self.dtype, base_unit=self.base_unit)
@@ -125,15 +128,34 @@ class Column:
         """returns the expression of the column."""
         return pl.col(self.name)
 
+
 class SchemaMixin:
     """mixin class for data classes with a predefined schema.
-    provides a class attribute `schema` which is an ordered dict of column name and ColumnSpec."""
+    provides a class attribute `schema` which is an ordered dict of column name and
+    ColumnSpec."""
+
     schema: Mapping[str, ColumnSpec]
-    _RESERVED_ATTR_NAMES = frozenset({
-        'col_to_unit', 'denormalize', 'df', 'df_to_units',
-        'downsample', 'export_csv', 'filter', 'get_unit', 'is_col_ready',
-        'load', 'metadata', 'norm', 'normalize', 'save', 'schema', 'table', 'with_table'
-    })
+    _RESERVED_ATTR_NAMES = frozenset(
+        {
+            "col_to_unit",
+            "denormalize",
+            "df",
+            "df_to_units",
+            "downsample",
+            "export_csv",
+            "filter",
+            "get_unit",
+            "is_col_ready",
+            "load",
+            "metadata",
+            "norm",
+            "normalize",
+            "save",
+            "schema",
+            "table",
+            "with_table",
+        }
+    )
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
@@ -142,28 +164,35 @@ class SchemaMixin:
             for attrname, attrval in base.__dict__.items():
                 if isinstance(attrval, Column):
                     if attrname in cls._RESERVED_ATTR_NAMES:
-                        raise ValueError(f"Column name {attrname!r} is reserved and cannot be used.")
+                        raise ValueError(
+                            f"Column name {attrname!r} is reserved and cannot be used."
+                        )
                     schema[attrname] = attrval.get_spec()
         cls.schema = MappingProxyType(schema)
 
+
 class BaseData(SchemaMixin):
     """Base class for representing data."""
+
     norm: NormPolicy
 
-    def __init__(self,
-                 table: FrameInitTypes,
-                 *,
-                 normalization: tuple[float | None, str | None] \
-                         = NormPolicy(None, None),
-                 metadata: Mapping[str, t.Any] | None = None,
-                 drop_extra_columns: bool = True
-                 ):
+    def __init__(
+        self,
+        table: FrameInitTypes,
+        *,
+        normalization: tuple[float | None, str | None] = NormPolicy(None, None),
+        metadata: Mapping[str, t.Any] | None = None,
+        drop_extra_columns: bool = True,
+    ):
         """
         :param table: original data.
-        :param normalization: Information about normalization as a tuple of (amount, unit).
+        :param normalization:
+            Information about normalization as a tuple of (amount, unit).
             - If no normalization is applied, the unit should be None.
-            - If normalization is applied (unit is known) but the amount is unknown, the amount should be None.
-            - If normalized by a dimensionless factor, the unit should be 'dimensionless'.
+            - If normalization is applied (unit is known) but the amount is unknown,
+                the amount should be None.
+            - If normalized by a dimensionless factor,
+                the unit should be 'dimensionless'.
             Note: Specifying `normalization` does not actually perform normalization.
                 This argument only indicates that the table data is already normalized.
                 Actual normalization can be performed using the normalize() method.
@@ -185,50 +214,46 @@ class BaseData(SchemaMixin):
 
     def save(self, path) -> None:
         """saves the data as .zip file."""
-        with ZipFile(path, 'w', compression=ZIP_STORED) as zip_file:
-            with zip_file.open('table.parquet', 'w') as f:
+        with ZipFile(path, "w", compression=ZIP_STORED) as zip_file:
+            with zip_file.open("table.parquet", "w") as f:
                 self.table.write_parquet(f)
 
             manifest = {
-                'metadata': self.metadata.to_dict(),
-                'norm': tuple(self.norm),
-                'version': 1,
-                'format': 'exptoolkit',
-                'class': type(self).__name__,
+                "metadata": self.metadata.to_dict(),
+                "norm": tuple(self.norm),
+                "version": 1,
+                "format": "exptoolkit",
+                "class": type(self).__name__,
             }
-            zip_file.writestr(
-                "manifest.json",
-                json.dumps(manifest, indent=2, ensure_ascii=False)
-            )
+            zip_file.writestr("manifest.json", json.dumps(manifest, indent=2, ensure_ascii=False))
 
     @classmethod
     def load(cls, path) -> t.Self:
         """loads the data from a .zip file."""
-        with ZipFile(path, 'r') as zip_file:
+        with ZipFile(path, "r") as zip_file:
             try:
-                b = zip_file.read('manifest.json')
-            except KeyError:
-                raise ValueError('Unsupported file (manifest.json does not exist)')
+                b = zip_file.read("manifest.json")
+            except KeyError as exc:
+                raise ValueError("Unsupported file (manifest.json does not exist)") from exc
 
-            manifest = json.loads(b.decode('utf-8'))
+            manifest = json.loads(b.decode("utf-8"))
 
-            fmt = manifest.get('format')
-            if fmt != 'exptoolkit':
-                raise ValueError(f'Unsupported file format: {fmt!r}')
+            fmt = manifest.get("format")
+            if fmt != "exptoolkit":
+                raise ValueError(f"Unsupported file format: {fmt!r}")
 
-            metadata = manifest.get('metadata', {})
-            norm = tuple(manifest.get('norm', (None, None)))
-            class_ = manifest.get('class')
+            metadata = manifest.get("metadata", {})
+            norm = tuple(manifest.get("norm", (None, None)))
+            class_ = manifest.get("class")
 
             if class_ != cls.__name__:
                 warnings.warn(
-                    f"File was created as {class_}, "
-                    f"but is being loaded as {cls.__name__}.",
+                    f"File was created as {class_}, but is being loaded as {cls.__name__}.",
                     UserWarning,
                     stacklevel=2,
                 )
 
-            with zip_file.open('table.parquet', 'r') as f:
+            with zip_file.open("table.parquet", "r") as f:
                 table = pl.read_parquet(f)
 
         return cls(table, normalization=norm, metadata=metadata, drop_extra_columns=False)
@@ -236,9 +261,9 @@ class BaseData(SchemaMixin):
     def export_excel(self, path, ws_table="table", ws_manifest="manifest") -> None:
         """exports the data to a .xlsx file."""
         manifest = {
-                'class': type(self).__name__,
-                'norm': tuple(self.norm),
-                'metadata': self.metadata.to_dict(),
+            "class": type(self).__name__,
+            "norm": tuple(self.norm),
+            "metadata": self.metadata.to_dict(),
         }
         with Workbook(path) as wb:
             self.table.write_excel(wb, worksheet=ws_table)
@@ -267,14 +292,16 @@ class BaseData(SchemaMixin):
                 errors.append(f"- table does not contain required column '{key}'")
             elif table.schema[key] != spec.dtype:
                 is_valid = False
-                errors.append(f"- dtype mismatch in column '{key}'."
-                              f"given: {table.schema[key]}, expected: {spec.dtype}")
+                errors.append(
+                    f"- dtype mismatch in column '{key}'."
+                    f"given: {table.schema[key]}, expected: {spec.dtype}"
+                )
         if is_valid:
             self._table = table
         else:
             raise ValueError("\n".join(errors))
 
-    df = table # alias for convenience
+    df = table  # alias for convenience
 
     @property
     def metadata(self) -> JSONDict:
@@ -301,7 +328,7 @@ class BaseData(SchemaMixin):
         exprs = [self._to_unit_expr(col, unit) for col, unit in units.items()]
         return self.table.with_columns(exprs)
 
-    def get_unit(self, column: str | Column, fmt='~P') -> str:
+    def get_unit(self, column: str | Column, fmt="~P") -> str:
         """gets the unit associated with the given column.
         considers current normalization information."""
         if isinstance(column, Column):
@@ -309,10 +336,10 @@ class BaseData(SchemaMixin):
         ureg = load_ureg()
         base = self.schema[column].base_unit
         role = self.schema[column].role
-        norm = self.norm.unit or 'dimensionless'
-        return f"{ureg.Unit(base) / ureg.Unit(norm)**role:{fmt}}"
+        norm = self.norm.unit or "dimensionless"
+        return f"{ureg.Unit(base) / ureg.Unit(norm) ** role:{fmt}}"
 
-    def downsample(self, n: int, offset: int=0) -> t.Self:
+    def downsample(self, n: int, offset: int = 0) -> t.Self:
         """takes every n points with offset, and returns a new data object."""
         return self.with_table(self.table.gather_every(n, offset))
 
@@ -321,8 +348,8 @@ class BaseData(SchemaMixin):
             raise ValueError("data is already normalized")
         exprs = [
             pl.col(col) / norm_amount**spec.role
-                for col, spec in self.schema.items()
-                if spec.role != Role.INTENSIVE  # prevents normalizing non-numeric data
+            for col, spec in self.schema.items()
+            if spec.role != Role.INTENSIVE  # prevents normalizing non-numeric data
         ]
         new_table = self.table.with_columns(exprs)
         new_data = self.with_table(new_table)
@@ -330,40 +357,32 @@ class BaseData(SchemaMixin):
         return new_data
 
     def filter(
-            self,
-            *predicates: (
-                IntoExprColumn
-                | Iterable[IntoExprColumn]
-                | bool
-                | list[bool]
-                | npt.NDArray[np.bool_]
-            ),
-            **constraints: t.Any,
-        ) -> t.Self:
-        return self.with_table(
-            self.table.filter(*predicates, **constraints)
-        )
+        self,
+        *predicates: (
+            IntoExprColumn | Iterable[IntoExprColumn] | bool | list[bool] | npt.NDArray[np.bool_]
+        ),
+        **constraints: t.Any,
+    ) -> t.Self:
+        return self.with_table(self.table.filter(*predicates, **constraints))
 
     def denormalize(self) -> t.Self:
         if self.norm.unit is None:
-            new_data =  copy(self)
+            new_data = copy(self)
             new_data.metadata = copy(self.metadata)
         else:
             if self.norm.amount is None:
                 raise ValueError("cannot denormalize because normalization amount is unknown")
             exprs = [
                 pl.col(col) * self.norm.amount**spec.role
-                    for col, spec in self.schema.items()
-                    if spec.role != Role.INTENSIVE
+                for col, spec in self.schema.items()
+                if spec.role != Role.INTENSIVE
             ]
-            new_data = self.with_table(
-                self.table.with_columns(exprs)
-            )
+            new_data = self.with_table(self.table.with_columns(exprs))
             new_data.norm = NormPolicy(None, None)
             new_data.metadata = copy(self.metadata)
         return new_data
 
-    def with_table(self, table: pl.DataFrame, copy_metadata: bool=True) -> t.Self:
+    def with_table(self, table: pl.DataFrame, copy_metadata: bool = True) -> t.Self:
         """switches table and returns a new data. copies metadata by default."""
         new_data = copy(self)
         new_data.table = table
@@ -388,7 +407,7 @@ def normalize_json_value(value) -> JSONScalar | JSONList | JSONDict:
     if value is None:
         return None
 
-    # ---------- JSON-serializable types ---------
+    # JSON-serializable types
     if isinstance(value, (bool, int, float, str, JSONList, JSONDict)):
         return value
     if isinstance(value, (list, tuple)):
@@ -396,7 +415,7 @@ def normalize_json_value(value) -> JSONScalar | JSONList | JSONDict:
     if isinstance(value, dict):
         return JSONDict(value)
 
-    # ---------- Types that can be safely converted to JSON-serializable types ---------
+    # Types that can be safely converted to JSON-serializable types
     if isinstance(value, np.integer):
         return int(value)
     if isinstance(value, np.floating):
@@ -404,46 +423,47 @@ def normalize_json_value(value) -> JSONScalar | JSONList | JSONDict:
     if isinstance(value, np.bool_):
         return bool(value)
 
-    # ---------- Other types that can be converted to JSON-serializable types with a warning ---------
+    # Other types that can be converted to JSON-serializable types with a warning
     if isinstance(value, PurePath):
-        _warn_conversion(value, 'string')
+        _warn_conversion(value, "string")
         return str(value)
     if isinstance(value, (datetime.time, datetime.date)):
-        _warn_conversion(value, 'ISO format string')
+        _warn_conversion(value, "ISO format string")
         return value.isoformat()
     if isinstance(value, np.ndarray):
-        _warn_conversion(value, 'list')
+        _warn_conversion(value, "list")
         return JSONList(value.tolist())
     if isinstance(value, pl.Series):
-        _warn_conversion(value, 'list')
+        _warn_conversion(value, "list")
         return JSONList(value.to_list())
     if isinstance(value, pl.DataFrame):
-        _warn_conversion(value, 'dict')
+        _warn_conversion(value, "dict")
         return JSONDict(value.to_dict(as_series=False))
     pd = sys.modules.get("pandas")
     if pd is not None:
         if isinstance(value, pd.Timestamp):
-            _warn_conversion(value, 'ISO format string')
+            _warn_conversion(value, "ISO format string")
             return value.isoformat()
         if isinstance(value, pd.Series):
-            _warn_conversion(value, 'list')
+            _warn_conversion(value, "list")
             return JSONList(value.to_list())
         if isinstance(value, pd.DataFrame):
-            _warn_conversion(value, 'dict')
-            return JSONDict(value.to_dict(orient='list'))
+            _warn_conversion(value, "dict")
+            return JSONDict(value.to_dict(orient="list"))
 
-    # ---------- Unsupported types ---------
-    raise TypeError(
-        f"Value of type {type(value)} is not supported for JSON serialization"
-    )
+    # Unsupported types
+    raise TypeError(f"Value of type {type(value)} is not supported for JSON serialization")
+
 
 def _warn_conversion(value, to_type: str, stacklevel=4) -> None:
     msg = f"{type(value)} is not JSON-serializable. converting to {to_type}."
     warnings.warn(msg, JSONSerializationWarning, stacklevel=stacklevel)
 
+
 class JSONDict(MutableMapping):
     """A dict-like class that only accepts JSON-serializable values."""
-    def __init__(self, initial: t.Mapping[str, t.Any] | None=None) -> None:
+
+    def __init__(self, initial: t.Mapping[str, t.Any] | None = None) -> None:
         self._data: dict[str, t.Any] = {}
         if initial is not None:
             for k, v in initial.items():
@@ -454,7 +474,7 @@ class JSONDict(MutableMapping):
 
     def __setitem__(self, key: str, value: t.Any) -> None:
         if not isinstance(key, str):
-            raise TypeError(f'key must be a string, got {type(key)}')
+            raise TypeError(f"key must be a string, got {type(key)}")
         self._data[key] = normalize_json_value(value)
 
     def __delitem__(self, key: str) -> None:
@@ -488,8 +508,9 @@ class JSONDict(MutableMapping):
         result._data = deepcopy(self._data, memo)
         return result
 
+
 class JSONList(MutableSequence):
-    def __init__(self, initial: t.Iterable[t.Any] | None=None):
+    def __init__(self, initial: t.Iterable[t.Any] | None = None):
         self._data: list[t.Any] = []
         if initial is not None:
             for v in initial:
@@ -536,6 +557,7 @@ class JSONList(MutableSequence):
         if isinstance(other, Sequence):
             return list(self) == list(other)
         return NotImplemented
+
 
 def _to_builtin(v) -> JSONValue:
     if isinstance(v, JSONDict):
