@@ -33,12 +33,8 @@ def detect_states(data: ChargeDischargeData, atol=1e-6, rtol=1e-4) -> None:
     dtype = cls.state.dtype
     data.state = data.table.select(
         pl.coalesce(
-            pl.when(cls.current.expr < -tolerance).then(
-                pl.lit(State.DISCHARGE, dtype=dtype)
-            ),
-            pl.when(cls.current.expr > tolerance).then(
-                pl.lit(State.CHARGE, dtype=dtype)
-            ),
+            pl.when(cls.current.expr < -tolerance).then(pl.lit(State.DISCHARGE, dtype=dtype)),
+            pl.when(cls.current.expr > tolerance).then(pl.lit(State.CHARGE, dtype=dtype)),
             pl.lit(State.REST, dtype=dtype),
         )
         .cast(dtype)
@@ -55,12 +51,8 @@ def detect_steps(data: ChargeDischargeData, recalc_time=True) -> None:
     data.step = data.table.select((st | cy).cum_sum().alias(cls.step.name)).to_series()
     if recalc_time:
         data.table = data.table.with_columns(
-            (cls.time.expr - cls.time.expr.first().over(cls.step.expr)).alias(
-                cls.step_time.name
-            ),
-            (cls.time.expr - cls.time.expr.first().over(cls.cycle.expr)).alias(
-                cls.cycle_time.name
-            ),
+            (cls.time.expr - cls.time.expr.first().over(cls.step.expr)).alias(cls.step_time.name),
+            (cls.time.expr - cls.time.expr.first().over(cls.cycle.expr)).alias(cls.cycle_time.name),
         )
 
 
@@ -74,9 +66,7 @@ def integrate_capacity(
     if not skip_step:
         exprs.append(
             (
-                _cumulative_trapezoid(
-                    cls.current.expr, cls.step_time.expr / 3600.0, x0=0.0
-                )
+                _cumulative_trapezoid(cls.current.expr, cls.step_time.expr / 3600.0, x0=0.0)
                 .over(cls.step.expr, cls.cycle.expr)
                 .cast(cls.step_capacity.dtype)
                 * pl.when(cls.state.expr == State.DISCHARGE)
@@ -86,9 +76,7 @@ def integrate_capacity(
         )
     if not skip_cycle:
         exprs.append(
-            _cumulative_trapezoid(
-                cls.current.expr, cls.cycle_time.expr / 3600.0, x0=0.0
-            )
+            _cumulative_trapezoid(cls.current.expr, cls.cycle_time.expr / 3600.0, x0=0.0)
             .over(cls.cycle.expr)
             .cast(cls.cycle_capacity.dtype)
             .alias(cls.cycle_capacity.name)
@@ -115,7 +103,7 @@ def integrate_energy(
 
     if not (step_ready and cycle_ready and total_ready):
         integrate_capacity(
-            data, 
+            data,
             skip_step=step_ready,
             skip_cycle=cycle_ready,
             skip_total=total_ready,
@@ -158,9 +146,9 @@ def differentiate(
     cls = ChargeDischargeData
     if not data.is_col_ready(cls.step_capacity.name):
         integrate_capacity(data)
-    data.table = data.table.group_by(
-        cls.step.name, cls.cycle.name, maintain_order=True
-    ).map_groups(lambda g: _differentiate_step(g, window_in_volt, polyorder))
+    data.table = data.table.group_by(cls.step.name, cls.cycle.name, maintain_order=True).map_groups(
+        lambda g: _differentiate_step(g, window_in_volt, polyorder)
+    )
 
 
 def _differentiate_step(g: pl.DataFrame, window_in_volt, polyorder) -> pl.DataFrame:
@@ -173,8 +161,10 @@ def _differentiate_step(g: pl.DataFrame, window_in_volt, polyorder) -> pl.DataFr
             pl.lit(None, dtype=cls.dvdq.dtype).alias(cls.dvdq.name),
         )
 
-    cycle = g[cls.cycle.name].first()
-    step = g[cls.step.name].first()
+    cycle, step = g.select(
+        pl.col(cls.cycle.name).first(),
+        pl.col(cls.step.name).first(),
+    ).row(0)
 
     try:
         if not g[cls.state.name].is_in(["charge", "discharge"]).all():
@@ -190,10 +180,12 @@ def _differentiate_step(g: pl.DataFrame, window_in_volt, polyorder) -> pl.DataFr
         v_ = v[mask]
         q_ = q[mask]
 
-        # should be placed before np.nanmax(v_) because if v_ is empty, np.nanmax(v_) will raise ValueError.
+        # should be placed before np.nanmax(v_)
+        # because if v_ is empty, np.nanmax(v_) will raise ValueError.
         if len(v_) < 2:
             logger.warning(
-                "Skipping differentiation for (cycle, step) = (%s, %s) because there are not enough data points (%s)",
+                "Skipping differentiation for (cycle, step) = (%s, %s) "
+                "because there are not enough data points (%s)",
                 cycle,
                 step,
                 len(v_),
@@ -211,14 +203,13 @@ def _differentiate_step(g: pl.DataFrame, window_in_volt, polyorder) -> pl.DataFr
             wl = wl - 1
 
         if 0 < polyorder < wl <= len(v_):
-            logger.info(
-                "window_length of (cycle, step) = (%s, %s): %s", cycle, step, wl
-            )
+            logger.info("window_length of (cycle, step) = (%s, %s): %s", cycle, step, wl)
             dq = savgol_filter_np(q_, window_length=wl, polyorder=polyorder, deriv=1)
             dv = savgol_filter_np(v_, window_length=wl, polyorder=polyorder, deriv=1)
         else:
             logger.warning(
-                "Disable smoothing for (cycle, step) = (%s, %s) because window_length is too large/small (%s)",
+                "Disable smoothing for (cycle, step) = (%s, %s) "
+                "because window_length is too large/small (%s)",
                 cycle,
                 step,
                 wl,
@@ -235,7 +226,7 @@ def _differentiate_step(g: pl.DataFrame, window_in_volt, polyorder) -> pl.DataFr
     except Exception:
         # Catch all exceptions because map_groups hides the original traceback.
         logger.exception(
-            "Failed to differentiate for (cycle, step) = (%s, %s)", cycle, step
+            "Failed to differentiate for (cycle, step) = (%s, %s)", cycle, step, exc_info=True
         )
         return _none()
 
@@ -304,18 +295,12 @@ def chargedischarge_to_cycle(
         #    それに対する比をとる
         # --------------------------------------------------------
         .with_columns(
-            (100.0 * _ret(csd.capacity_charge.expr)).alias(
-                csd.capacity_charge_retention.name
-            ),
+            (100.0 * _ret(csd.capacity_charge.expr)).alias(csd.capacity_charge_retention.name),
             (100.0 * _ret(csd.capacity_discharge.expr)).alias(
                 csd.capacity_discharge_retention.name
             ),
-            (100.0 * _ret(csd.energy_charge.expr)).alias(
-                csd.energy_charge_retention.name
-            ),
-            (100.0 * _ret(csd.energy_discharge.expr)).alias(
-                csd.energy_discharge_retention.name
-            ),
+            (100.0 * _ret(csd.energy_charge.expr)).alias(csd.energy_charge_retention.name),
+            (100.0 * _ret(csd.energy_discharge.expr)).alias(csd.energy_discharge_retention.name),
         )
         # ------------------------------------------------------------
         # 効率計算
@@ -369,14 +354,16 @@ def calc_dcr(
         1. 直前のデータ点からの電流変化量が ``threshold`` より大きい
         2. 直後のデータ点との電流変化量が ``current_eps`` 未満である（定電流区間の開始点）
 
-    - 電流ステップの終了点は、電流値の変化が ``current_eps`` 以上となる最初のデータ点とする（定電流区間の終了点）。
+    - 電流ステップの終了点は、電流値の変化が ``current_eps`` 以上となる
+        最初のデータ点とする（定電流区間の終了点）。
 
     - 検出された電流ステップは次のように分類される。
         - ``relax``:    ステップ後の電流絶対値が ``current_eps`` 未満
         - ``pulse(+)``: ステップ後の電流値がステップ開始直前の電流値(I0)より大きい（充電パルス）
         - ``pulse(-)``: ステップ後の電流値がステップ開始直前の電流値(I0)より小さい（放電パルス）
 
-    - t_extract に list[float] を指定した場合、ΔV は時間に対して線形補間して求められる。DCR は補間後の ΔV を用いて計算される。
+    - t_extract に list[float] を指定した場合、ΔV は時間に対して線形補間して求められる。
+        DCR は補間後の ΔV を用いて計算される。
       ステップの幅より長い時間を指定した場合、その差が10%以下であれば端点を用い、それ以上ならデータが破棄される。
     Returns
     -------
@@ -449,18 +436,13 @@ def calc_dcr(
                 # t0 ~ I0 の計算
                 # t0 は電流パルス開始の瞬間の時刻。
                 pl.col("is_step_start").cum_sum().alias("pulse_id"),
-                pl.when(pl.col("is_step_start"))
-                .then(cls.cycle.expr)
-                .forward_fill()
-                .alias("cycle"),
-                pl.when(pl.col("is_step_start"))
-                .then(cls.step.expr)
-                .forward_fill()
-                .alias("step"),
+                pl.when(pl.col("is_step_start")).then(cls.cycle.expr).forward_fill().alias("cycle"),
+                pl.when(pl.col("is_step_start")).then(cls.step.expr).forward_fill().alias("step"),
                 pl.when(pl.col("is_step_start"))
                 .then(
                     # 電流ステップ開始の瞬間の累計時刻を求める。
-                    # 電流ステップ開始点が step (プログラム上の区切り) の切り替わり点でもあるなら、累計時刻から step_time を引けば良い。
+                    # 電流ステップ開始点が step (プログラム上の区切り) の切り替わり点でもあるなら、
+                    # 累計時刻から step_time を引けば良い。
                     # そうでない場合、開始点は推測不能なので累計時刻をそのまま使う。
                     cls.time.expr
                     - pl.when(
@@ -472,18 +454,9 @@ def calc_dcr(
                 )
                 .forward_fill()
                 .alias("t0"),
-                pl.when(pl.col("is_step_start"))
-                .then(pl.col("V_prev"))
-                .forward_fill()
-                .alias("V0"),
-                pl.when(pl.col("is_step_start"))
-                .then(pl.col("Q_prev"))
-                .forward_fill()
-                .alias("Q0"),
-                pl.when(pl.col("is_step_start"))
-                .then(pl.col("I_prev"))
-                .forward_fill()
-                .alias("I0"),
+                pl.when(pl.col("is_step_start")).then(pl.col("V_prev")).forward_fill().alias("V0"),
+                pl.when(pl.col("is_step_start")).then(pl.col("Q_prev")).forward_fill().alias("Q0"),
+                pl.when(pl.col("is_step_start")).then(pl.col("I_prev")).forward_fill().alias("I0"),
             ]
         )
         .with_columns(
@@ -498,10 +471,7 @@ def calc_dcr(
         .filter(
             pl.col("pulse_id") > 0,
             # 電流ステップ開始時点から一定電流の領域だけを切り出す。
-            (
-                (cls.current.expr - cls.current.expr.first().over("pulse_id")).abs()
-                < current_eps
-            )
+            ((cls.current.expr - cls.current.expr.first().over("pulse_id")).abs() < current_eps)
             .cum_prod()
             .over("pulse_id"),
         )
@@ -517,9 +487,7 @@ def calc_dcr(
         t_df = pl.DataFrame({"t_star": t_extract})
         df = (
             df.join(t_df, how="cross")
-            .filter(
-                pl.col("Δt").max().over("pulse_id") >= pl.col("t_star") * TIME_TOLERANCE
-            )
+            .filter(pl.col("Δt").max().over("pulse_id") >= pl.col("t_star") * TIME_TOLERANCE)
             .group_by("pulse_id", "t_star")
             .map_groups(_interpolate_dcr)
             .group_by(["pulse_id", "t_star"])
@@ -558,12 +526,11 @@ def _interpolate_dcr(g: pl.DataFrame):
     x = g["Δt"]
     x_on = g["t_star"]
     exprs: list[pl.Series | pl.Expr] = [
-        pl.lit(g.sort((pl.col("Δt") - pl.col("t_star")).abs())["Δt"].first()).alias(
-            "Δt_nearest"
-        )
+        pl.col("Δt").sort_by((pl.col("Δt") - pl.col("t_star")).abs()).first().alias("Δt_nearest")
     ]
     for col in ["Δt", "ΔI", "ΔV"]:
-        exprs.append(pl.Series(col, np.interp(x_on, x, g[col]), dtype=g[col].dtype))
+        values = np.asarray(np.interp(x_on, x, g[col]))
+        exprs.append(pl.Series(col, values, dtype=g[col].dtype))
     return g.with_columns(exprs)
 
 
