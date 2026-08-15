@@ -31,7 +31,7 @@ classifiers = [
 dependencies = [
   "numpy",
   "polars",
-  "pydantic",
+  "pydantic>=2",
   "webcolors",
   "pint",
   "xlsxwriter",
@@ -42,18 +42,18 @@ dependencies = [
 
 [project.optional-dependencies]
 plotting = [
-  "matplotlib>=3.7.5",
-  "openpyxl>=3.1.5",
-  "plotly>=6.9.0",
+  "matplotlib",
+  "openpyxl",
+  "plotly",
 ]
 
 qt = [
-  "pyqtgraph>=0.13.3",
-  "PySide6>=6.2",
+  "pyqtgraph",
+  "PySide6",
 ]
 
 pandas = [
-  "pandas>=2.0.3",
+  "pandas",
 ]
 
 dev = [
@@ -66,8 +66,9 @@ dev = [
   "pre-commit",
   "tox",
   "coverage",
-  "tox-uv>=1.13.1",
-  "pandas-stubs>=2.0.3.230814",
+  "tox-uv",
+  "pandas-stubs",
+  "types-openpyxl"
 ]
 
 
