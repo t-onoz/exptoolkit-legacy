@@ -4,14 +4,15 @@ sample name and measurement ID.
 
 This subpackage is independent of others.
 """
+
 from exptoolkit.repository._repo import (
     DataResource,
     ResourceRepo,
 )
-from exptoolkit.repository._scanner import(
-    ScanResult,
-    ResourceScanner,
+from exptoolkit.repository._scanner import (
     DirectoryScanner,
+    ResourceScanner,
+    ScanResult,
 )
 
-__all__ = ['DataResource', 'ResourceRepo', 'ScanResult', 'ResourceScanner', 'DirectoryScanner']
+__all__ = ["DataResource", "ResourceRepo", "ScanResult", "ResourceScanner", "DirectoryScanner"]

@@ -1,37 +1,44 @@
 from __future__ import annotations
-from string import capwords
-from typing import Protocol, TypeVar, TYPE_CHECKING, Any, Hashable
-from abc import abstractmethod, ABC
+
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from string import capwords
+from typing import TYPE_CHECKING, Any, Hashable, Protocol, TypeVar
 
 from exptoolkit.data import BaseData
 from exptoolkit.plotter.backends import get_target
 
 if TYPE_CHECKING:
-    from exptoolkit.plotter.backends import TargetLike, Target
+    from exptoolkit.plotter.backends import Target, TargetLike
     from exptoolkit.plotter.colors import ColorLike
 
-M_contra = TypeVar('M_contra', bound=BaseData, contravariant=True)
+M_contra = TypeVar("M_contra", bound=BaseData, contravariant=True)
+
 
 class Plotter(Protocol[M_contra]):
-    def plot(self,
-            data: M_contra,
-            target_like: TargetLike,
-            label: str | None = None,
-            color: ColorLike | None = None,
-            **opts) -> Target:
+    def plot(
+        self,
+        data: M_contra,
+        target_like: TargetLike,
+        label: str | None = None,
+        color: ColorLike | None = None,
+        **opts,
+    ) -> Target:
 
         t = get_target(target_like)
         self._plot(data, t, label, color, **opts)
         return t
 
     @abstractmethod
-    def _plot(self,
+    def _plot(
+        self,
         data: M_contra,
         target: Target,
-        label: str | None = None ,
+        label: str | None = None,
         color: ColorLike | None = None,
-        **opts: Any): ...
+        **opts: Any,
+    ): ...
+
 
 @dataclass
 class XyPlotter(Plotter[BaseData]):
@@ -63,6 +70,7 @@ class TargetManager(ABC):
     Subclasses implement `group_key()` and `factory()` to define the grouping
     rule and target creation strategy.
     """
+
     def __init__(self) -> None:
         self._targets: dict[tuple[str, Hashable], TargetLike] = {}
 
@@ -71,7 +79,9 @@ class TargetManager(ABC):
         pass
 
     @abstractmethod
-    def factory(self, *,
+    def factory(
+        self,
+        *,
         plot_name: str,
         group_key: Any,
     ) -> TargetLike:

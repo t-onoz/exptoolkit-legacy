@@ -1,5 +1,8 @@
+# pyright: reportAttributeAccessIssue=false
 from __future__ import annotations
+
 import numpy as np
+
 from exptoolkit.plotter.backends._base import Target
 from exptoolkit.plotter.colors import parse_color
 
@@ -11,7 +14,8 @@ except ImportError as exc:
 
 class PyQtGraphTarget(Target):
     """PyQtGraph backend for plotting graphs. Implements the Target protocol."""
-    def __init__(self, target: pg.PlotWidget | pg.PlotItem):
+
+    def __init__(self, target: pg.PlotWidget | pg.PlotItem):  # pyright: ignore[reportInvalidTypeForm]  # pyright#11481
         """Initialize the PyQtGraphTarget with a PlotWidget or PlotItem object.
         Args:
             target (PlotWidget | PlotItem): A PyQtGraph PlotWidget or PlotItem object
@@ -22,51 +26,53 @@ class PyQtGraphTarget(Target):
     def add_line(self, x, y, color=None, label=None, **kwargs):
         if color is not None:
             cobj = parse_color(color)
-            kwargs['pen'] = cobj.as_rgb_int(include_alpha=True)
+            kwargs["pen"] = cobj.as_rgb_int(include_alpha=True)
         return self.target.plot(x, y, name=label, **kwargs)
 
     def add_scatter(self, x, y, c=None, color=None, label=None, color_scale="linear", **kwargs):
-        kwargs['pen'] = None
-        kwargs['symbol'] = 'o'
+        kwargs["pen"] = None
+        kwargs["symbol"] = "o"
         if c is not None:
-            if color_scale == 'log':
+            if color_scale == "log":
                 c = np.log10(c)
-            for n in ('cmap', 'palette', 'map_name', 'colormap_name'):
+            for n in ("cmap", "palette", "map_name", "colormap_name"):
                 colormap_name = kwargs.pop(n, None)
                 if colormap_name is not None:
                     break
-            colormap_name = colormap_name or 'cividis'
+            colormap_name = colormap_name or "cividis"
 
             n_pts = 512
             colormap = pg.colormap.get(colormap_name)
+            if colormap is None:
+                raise ValueError(f"Failed to get colormap: {colormap_name}")
             value_range = np.linspace(np.min(c), np.max(c), n_pts)
-            colors = colormap.getLookupTable(0,  1, n_pts)
+            colors: np.ndarray = colormap.getLookupTable(0, 1, n_pts)  # pyright: ignore[reportAssignmentType]
             brushes = colors[np.searchsorted(value_range, c)]
-            kwargs['symbolBrush'] = brushes
+            kwargs["symbolBrush"] = brushes
         elif color is not None:
-            kwargs['symbolBrush'] = parse_color(color).as_rgb_int(include_alpha=True)
+            kwargs["symbolBrush"] = parse_color(color).as_rgb_int(include_alpha=True)
         return self.target.plot(x, y, name=label, **kwargs)
 
     def set_ax_label(self, axis, label):
-        if axis == 'x':
-            return self.target.setLabel('bottom', label)
-        if axis == 'y':
-            return self.target.setLabel('left', label)
+        if axis == "x":
+            return self.target.setLabel("bottom", label)
+        if axis == "y":
+            return self.target.setLabel("left", label)
         raise ValueError(f"Unknown axis: {axis}")
 
     def set_title(self, title):
         return self.target.setTitle(title)
 
     def set_aspect(self, aspect):
-        if aspect == 'equal':
-            return self.target.setAspectLocked(True, ratio=1)
+        if aspect == "equal":
+            return self.target.setAspectLocked(True, ratio=1)  # type: ignore
         return self.target.setAspectLocked(False)
 
     def set_scale(self, axis, scale):
-        enable = scale == 'log'
-        if axis == 'x':
+        enable = scale == "log"
+        if axis == "x":
             return self.target.setLogMode(enable, None)
-        if axis == 'y':
+        if axis == "y":
             return self.target.setLogMode(None, enable)
         raise ValueError(f"Unknown axis: {axis}")
 
@@ -90,11 +96,13 @@ class PyQtGraphTarget(Target):
         """
         if isinstance(obj, PyQtGraphTarget):
             return obj
-        if isinstance(obj, (pg.PlotWidget, pg.PlotItem)):
+        if isinstance(obj, (pg.PlotWidget, pg.PlotItem)):  # pyright: ignore[reportArgumentType]  # pyright#11481
             return cls(obj)
-        for attr in ('plot_widget', 'plot_item', 'widget', 'item'):
+        for attr in ("plot_widget", "plot_item", "widget", "item"):
             target = getattr(obj, attr, None)
-            if isinstance(target, (pg.PlotWidget, pg.PlotItem)):
+            if isinstance(target, (pg.PlotWidget, pg.PlotItem)):  # pyright: ignore[reportArgumentType]  # pyright#11481
                 return cls(target)
-        raise TypeError(f"Cannot create PyQtGraphTarget from object: {obj}. "
-                        "Object must be a PlotWidget or PlotItem, or contain one as an attribute.")
+        raise TypeError(
+            f"Cannot create PyQtGraphTarget from object: {obj}. "
+            "Object must be a PlotWidget or PlotItem, or contain one as an attribute."
+        )

@@ -1,10 +1,12 @@
 from __future__ import annotations
-import time
+
 import contextlib
 import os
 import tempfile
+import time
 import typing as t
 from pathlib import Path
+
 
 @t.overload
 def atomic_open(
@@ -13,12 +15,14 @@ def atomic_open(
     **kwargs,
 ) -> contextlib.AbstractContextManager[t.IO[str]]: ...
 
+
 @t.overload
 def atomic_open(
     path: str | os.PathLike,
     mode: t.Literal["wb"] = "wb",
     **kwargs,
 ) -> contextlib.AbstractContextManager[t.IO[bytes]]: ...
+
 
 @contextlib.contextmanager
 def atomic_open(

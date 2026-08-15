@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from collections import defaultdict
 from logging import getLogger
 from typing import Any, Literal, MutableMapping
@@ -6,8 +7,8 @@ from weakref import WeakKeyDictionary
 
 try:
     from xlsxwriter import Workbook  # type: ignore[import]
-    from xlsxwriter.worksheet import Worksheet  # type: ignore[import]
     from xlsxwriter.chart_scatter import ChartScatter  # type: ignore[import]
+    from xlsxwriter.worksheet import Worksheet  # type: ignore[import]
 except ImportError as exc:
     raise ImportError("xlswriter is not installed. ") from exc
 from exptoolkit.plotter.backends._base import Target
@@ -17,22 +18,21 @@ from exptoolkit.plotter.colors import parse_color
 # Stored separately because Chart.x_axis/y_axis are internal state and
 # must not be reused as input to set_x_axis()/set_y_axis().
 # Reusing them can generate invalid DrawingML (e.g. empty <a:solidFill/>).
-_chart_options: MutableMapping[
-    ChartScatter,
-    dict[str, dict[str, Any]]
-] = WeakKeyDictionary()
+_chart_options: MutableMapping[ChartScatter, dict[str, dict[str, Any]]] = WeakKeyDictionary()
 
 logger = getLogger(__name__)
 
+
 class XlsxWriterTarget(Target):
     """XlsxWriterTarget backend for plotting graphs. Implements the Target protocol."""
+
     def __init__(
         self,
         ws: Worksheet,
         chart: ChartScatter | None = None,
         wb: Workbook | None = None,
         addr_default: str = "E5",
-        ):
+    ):
         """Initialize the XlsxWriterTarget with an xlsxwriter Worksheet object.
         Args:
             ws (Worksheet): An xlsxwriter Worksheet object where the data will be written.
@@ -48,7 +48,7 @@ class XlsxWriterTarget(Target):
                 raise ValueError("Either wb or chart must be provided.")
             self.chart: ChartScatter = wb.add_chart(
                 {"type": "scatter", "subtype": "straight_with_markers"}
-                )  # type: ignore
+            )  # type: ignore
             ws.insert_chart(addr_default, self.chart)  # type: ignore
         else:
             self.chart = chart
@@ -72,16 +72,13 @@ class XlsxWriterTarget(Target):
         self.chart.set_plotarea({"border": {"none": True}})
         self.chart.set_chartarea({"border": {"none": True}})
         self.chart.set_legend({"font": {"size": 10, "color": "#000000"}})
-        self._options["title"].update({'name_font': {'size': 18, 'bold': False}})
+        self._options["title"].update({"name_font": {"size": 18, "bold": False}})
         axis_options = {
-            'major_gridlines': {
-                'visible': True,
-                'line': {'color': '#D3D3D3', 'dash_type': 'dot'}
-            },
-            'major_tick_mark': "inside",
-            'num_font': {'size': 12, 'color': '#000000'},
-            'name_font': {'size': 14, 'bold': False, 'color': '#000000'},
-            'line': {'color': '#000000'},
+            "major_gridlines": {"visible": True, "line": {"color": "#D3D3D3", "dash_type": "dot"}},
+            "major_tick_mark": "inside",
+            "num_font": {"size": 12, "color": "#000000"},
+            "name_font": {"size": 14, "bold": False, "color": "#000000"},
+            "line": {"color": "#000000"},
         }
         self._options["x_axis"].update(axis_options)
         self._options["y_axis"].update(axis_options)
@@ -92,8 +89,16 @@ class XlsxWriterTarget(Target):
         prefix = label + "_" if label else ""
         self.ws.write_string(row=0, col=max_col + 1, string=prefix + str(getattr(x, "name", "x")))
         self.ws.write_string(row=0, col=max_col + 2, string=prefix + str(getattr(y, "name", "y")))
-        self.ws.write_column(row=1, col=max_col + 1, data=x.to_numpy() if hasattr(x, "to_numpy") else x)  # type: ignore
-        self.ws.write_column(row=1, col=max_col + 2, data=y.to_numpy() if hasattr(y, "to_numpy") else y)  # type: ignore
+        self.ws.write_column(
+            row=1,
+            col=max_col + 1,
+            data=x.to_numpy() if hasattr(x, "to_numpy") else x,  # pyright: ignore[reportAttributeAccessIssue]
+        )
+        self.ws.write_column(
+            row=1,
+            col=max_col + 2,
+            data=y.to_numpy() if hasattr(y, "to_numpy") else y,  # pyright: ignore[reportAttributeAccessIssue]
+        )
         series_options = {
             "categories": [self.ws.name, 1, max_col + 1, len(x), max_col + 1],
             "values": [self.ws.name, 1, max_col + 2, len(y), max_col + 2],
@@ -111,14 +116,24 @@ class XlsxWriterTarget(Target):
 
     def add_scatter(self, x, y, c=None, color=None, label=None, color_scale="linear", **kwargs):
         if c is not None:
-            logger.warning("Color mapping for scatter plots is not supported in XlsxWriter backend."
-                " Ignoring color information.")
+            logger.warning(
+                "Color mapping for scatter plots is not supported in XlsxWriter backend."
+                " Ignoring color information."
+            )
         max_col = self.ws.dim_colmax or -1
         prefix = label + "_" if label else ""
         self.ws.write_string(row=0, col=max_col + 1, string=prefix + str(getattr(x, "name", "x")))
         self.ws.write_string(row=0, col=max_col + 2, string=prefix + str(getattr(y, "name", "y")))
-        self.ws.write_column(row=1, col=max_col + 1, data=x.to_numpy() if hasattr(x, "to_numpy") else x)  # type: ignore
-        self.ws.write_column(row=1, col=max_col + 2, data=y.to_numpy() if hasattr(y, "to_numpy") else y)  # type: ignore
+        self.ws.write_column(
+            row=1,
+            col=max_col + 1,
+            data=x.to_numpy() if hasattr(x, "to_numpy") else x,  # pyright: ignore[reportAttributeAccessIssue]
+        )
+        self.ws.write_column(
+            row=1,
+            col=max_col + 2,
+            data=y.to_numpy() if hasattr(y, "to_numpy") else y,  # pyright: ignore[reportAttributeAccessIssue]
+        )
         series_options = {
             "categories": [self.ws.name, 1, max_col + 1, len(x), max_col + 1],
             "values": [self.ws.name, 1, max_col + 2, len(y), max_col + 2],
@@ -138,14 +153,14 @@ class XlsxWriterTarget(Target):
         self.chart.add_series(series_options)
 
     def set_ax_label(self, axis: Literal["x", "y"], label: str) -> None:
-        self._options[f'{axis}_axis']["name"] = label
+        self._options[f"{axis}_axis"]["name"] = label
         self._apply_options()
 
     def set_scale(self, axis: Literal["x", "y"], scale: Literal["linear", "log"]) -> None:
-        if scale == 'log':
-            self._options[f'{axis}_axis']['log_base'] = 10
+        if scale == "log":
+            self._options[f"{axis}_axis"]["log_base"] = 10
         else:
-            self._options[f'{axis}_axis'].pop('log_base', None)
+            self._options[f"{axis}_axis"].pop("log_base", None)
         self._apply_options()
 
     def set_title(self, title: str) -> None:
@@ -188,4 +203,4 @@ class XlsxWriterTarget(Target):
             "Unrecognized object type for XlsxWriterTarget. "
             f"Expected tuple containing Workbook, Worksheet, and/or ChartScatter objects. "
             f"Got: {repr(obj)}"
-            )
+        )

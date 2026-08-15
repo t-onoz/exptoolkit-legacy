@@ -1,13 +1,15 @@
 from __future__ import annotations
+
+import json
 import os
+import re
 import time
 import typing as t
-import json
-import re
 from abc import ABC, abstractmethod
-from urllib.parse import urlparse
-from pathlib import Path, PurePath
 from logging import getLogger
+from pathlib import PurePath
+from urllib.parse import urlparse
+
 from pydantic import BaseModel, ConfigDict
 
 from exptoolkit.repository._repo import ResourceRepo
@@ -72,10 +74,12 @@ class ResourceScanner(ABC):
             if self.owns(ref) and ref not in new_refs:
                 repo.remove(ref)
 
+
 class _CacheEntry(BaseModel):
     fingerprint: tuple
     scanned_at: float
     results: list[ScanResult]
+
 
 class _CacheData(BaseModel):
     version: str
@@ -83,6 +87,7 @@ class _CacheData(BaseModel):
     dir_regex: re.Pattern
     file_regex: re.Pattern
     entries: dict[str, _CacheEntry]
+
 
 class DirectoryScanner(ResourceScanner):
     """
@@ -103,17 +108,21 @@ class DirectoryScanner(ResourceScanner):
 
     Uses per-measurement cache based on folder mtime.
     """
-    _version = '1.1.0'
 
-    def __init__(self,
-                 root: str | os.PathLike,
-                 *,
-                 dir_regex: str | re.Pattern = '.*',
-                 file_regex: str | re.Pattern = '.*',
-                 f_mid: t.Callable[[os.DirEntry], str] = lambda e: e.name,
-                 f_sample: t.Callable[[os.DirEntry], str] = lambda e: os.path.splitext(e.name)[0],
-                 f_type: t.Callable[[os.DirEntry], str | None] = lambda e: os.path.splitext(e.name)[1][1:] or None,
-                 ):
+    _version = "1.1.0"
+
+    def __init__(
+        self,
+        root: str | os.PathLike,
+        *,
+        dir_regex: str | re.Pattern = ".*",
+        file_regex: str | re.Pattern = ".*",
+        f_mid: t.Callable[[os.DirEntry], str] = lambda e: e.name,
+        f_sample: t.Callable[[os.DirEntry], str] = lambda e: os.path.splitext(e.name)[0],
+        f_type: t.Callable[[os.DirEntry], str | None] = lambda e: (
+            os.path.splitext(e.name)[1][1:] or None
+        ),
+    ):
         self.root = PurePath(os.path.abspath(root))
         self._cache: dict[str, _CacheEntry] = {}
         self.dir_regex = re.compile(dir_regex)
@@ -125,7 +134,7 @@ class DirectoryScanner(ResourceScanner):
     # --- ownership ---
     def owns(self, ref: str) -> bool:
         pr = urlparse(ref)
-        if len(pr.scheme) >=2:
+        if len(pr.scheme) >= 2:
             # exclude http://, file://, etc.
             return False
 
@@ -153,11 +162,11 @@ class DirectoryScanner(ResourceScanner):
                 fingerprint = self.fingerprint(entry)
                 cache = self._cache.get(measurement_id)
                 if cache and cache.fingerprint == fingerprint:
-                    logger.debug('read measurement %r from cache', measurement_id)
+                    logger.debug("read measurement %r from cache", measurement_id)
                     results.extend(cache.results)
                     continue
 
-                logger.debug('read measurement %r from disk', measurement_id)
+                logger.debug("read measurement %r from disk", measurement_id)
 
                 # scan files
                 scanned = self._scan_measurement_dir(entry.path, measurement_id)
@@ -217,16 +226,16 @@ class DirectoryScanner(ResourceScanner):
             root=self.root,
             dir_regex=self.dir_regex,
             file_regex=self.file_regex,
-            entries={mid: entry for mid, entry in self._cache.items()}
+            entries={mid: entry for mid, entry in self._cache.items()},
         )
 
     def save_cache(self, file: str | os.PathLike | t.IO[str], **json_kw) -> None:
         """Save the cache as a JSON file."""
-        data = self._dump_cache().model_dump(mode='json')
-        json_kw.setdefault('indent', 2)
-        json_kw.setdefault('ensure_ascii', False)
+        data = self._dump_cache().model_dump(mode="json")
+        json_kw.setdefault("indent", 2)
+        json_kw.setdefault("ensure_ascii", False)
         if isinstance(file, (str, os.PathLike)):
-            with atomic_open(file, "w", encoding='utf-8') as f:
+            with atomic_open(file, "w", encoding="utf-8") as f:
                 json.dump(data, f, **json_kw)
         else:
             json.dump(data, file, **json_kw)

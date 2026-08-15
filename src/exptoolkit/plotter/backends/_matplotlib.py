@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from exptoolkit.plotter.backends._base import Target
 from exptoolkit.plotter.colors import parse_color
 
@@ -10,6 +11,7 @@ except ImportError as exc:
 
 class MatplotlibTarget(Target):
     """Matplotlib backend for plotting graphs. Implements the Target protocol."""
+
     def __init__(self, ax: Axes):
         """Initialize the MatplotlibTarget with a Matplotlib Axes object.
         Args:
@@ -18,8 +20,8 @@ class MatplotlibTarget(Target):
         self.ax = ax
 
     def add_line(self, x, y, color=None, label=None, **kwargs):
-        if 'fmt' in kwargs:
-            args: tuple = (x, y, kwargs.pop('fmt'))
+        if "fmt" in kwargs:
+            args: tuple = (x, y, kwargs.pop("fmt"))
         else:
             args = (x, y)
         if color:
@@ -28,16 +30,16 @@ class MatplotlibTarget(Target):
         return self.ax.plot(*args, label=label, **kwargs)
 
     def add_scatter(self, x, y, c=None, color=None, label=None, color_scale="linear", **kwargs):
-        if color_scale == 'log':
-            kwargs['norm'] = 'log'
+        if color_scale == "log":
+            kwargs["norm"] = "log"
         if color is not None:
-            kwargs['color'] = parse_color(color).as_hex(include_alpha=True)
+            kwargs["color"] = parse_color(color).as_hex(include_alpha=True)
         return self.ax.scatter(x, y, c=c, label=label, **kwargs)
 
     def set_ax_label(self, axis, label):
-        if axis == 'x':
+        if axis == "x":
             return self.ax.set_xlabel(label)
-        if axis == 'y':
+        if axis == "y":
             return self.ax.set_ylabel(label)
         raise ValueError(f"Unknown axis: {axis}")
 
@@ -48,14 +50,14 @@ class MatplotlibTarget(Target):
         return self.ax.set_title(title)
 
     def set_aspect(self, aspect):
-        if aspect == 'equal':
-            return self.ax.set_aspect('equal', 'box')
+        if aspect == "equal":
+            return self.ax.set_aspect("equal", "box")
         return self.ax.set_aspect(aspect)
 
     def set_scale(self, axis, scale):
-        if axis == 'x':
+        if axis == "x":
             return self.ax.set_xscale(scale)
-        if axis == 'y':
+        if axis == "y":
             return self.ax.set_yscale(scale)
         raise ValueError(f"Unknown axis: {axis}")
 

@@ -1,10 +1,13 @@
 from __future__ import annotations
+
 import re
 import typing as t
 from dataclasses import dataclass
+
 import webcolors
 
 ColorLike = t.Union["str", "tuple[float, float, float]", "tuple[float, float, float, float]"]
+
 
 @dataclass(frozen=True)
 class Color:
@@ -17,7 +20,9 @@ class Color:
         for c in ("r", "g", "b", "a"):
             val = getattr(self, c)
             if val < 0 or val > 1:
-                raise ValueError(f'Color value {repr(c)} must be between 0 and 1, given: {repr(val)}')
+                raise ValueError(
+                    f"Color value {repr(c)} must be between 0 and 1, given: {repr(val)}"
+                )
 
     @t.overload
     def as_rgb_int(self, include_alpha: t.Literal[False] = False) -> tuple[int, int, int]: ...
@@ -27,11 +32,18 @@ class Color:
 
     def as_rgb_int(self, include_alpha=False):
         if include_alpha:
-            return round(self.r * 255), round(self.g * 255), round(self.b * 255), round(self.a*255)
+            return (
+                round(self.r * 255),
+                round(self.g * 255),
+                round(self.b * 255),
+                round(self.a * 255),
+            )
         return round(self.r * 255), round(self.g * 255), round(self.b * 255)
 
     @t.overload
-    def as_rgb_float(self, include_alpha: t.Literal[False] = False) -> tuple[float, float, float]: ...
+    def as_rgb_float(
+        self, include_alpha: t.Literal[False] = False
+    ) -> tuple[float, float, float]: ...
 
     @t.overload
     def as_rgb_float(self, include_alpha: t.Literal[True]) -> tuple[float, float, float, float]: ...
@@ -70,7 +82,7 @@ def parse_color(color: ColorLike) -> Color:
             return Color(*color)
         if len(color) == 3:
             return Color(*color[:3])
-        raise ValueError(f'tuple length must be 3 or 4 (given: {repr(color)})')
+        raise ValueError(f"tuple length must be 3 or 4 (given: {repr(color)})")
 
     # string
     if isinstance(color, str):
@@ -80,6 +92,7 @@ def parse_color(color: ColorLike) -> Color:
         m = re.fullmatch(r"c(\d+)", s)
         if m:
             import matplotlib as mpl
+
             s = mpl.rcParams["axes.prop_cycle"].by_key()["color"]
             return parse_color(s[int(m.group(1)) % len(s)])
 
@@ -87,7 +100,7 @@ def parse_color(color: ColorLike) -> Color:
         if s.startswith("#"):
             try:
                 r, g, b = webcolors.hex_to_rgb(s)
-                return Color(r/255, g/255, b/255)
+                return Color(r / 255, g / 255, b / 255)
             except ValueError:
                 s = s.lstrip("#")
                 if len(s) == 8:
@@ -100,9 +113,9 @@ def parse_color(color: ColorLike) -> Color:
                 if len(s) == 4:
                     r, g, b, a = [int(c * 2, 16) for c in s]
                     return Color(r / 255, g / 255, b / 255, a / 255)
-            raise ValueError(f'Unknown hex code: {color}')
+            raise ValueError(f"Unknown hex code: {color}")
         # name
         r, g, b = webcolors.name_to_rgb(s)
         return Color(r / 255, g / 255, b / 255)
 
-    raise TypeError(f'Unknown input type: {repr(type(color))}')
+    raise TypeError(f"Unknown input type: {repr(type(color))}")

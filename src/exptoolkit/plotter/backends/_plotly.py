@@ -1,15 +1,19 @@
 from __future__ import annotations
+
 import numpy as np
+
 from exptoolkit.plotter.backends._base import Target
-from exptoolkit.plotter.colors import parse_color, ColorLike
+from exptoolkit.plotter.colors import ColorLike, parse_color
 
 try:
-    import plotly.graph_objects  as go
+    import plotly.graph_objects as go
 except ImportError as exc:
     raise ImportError("Plotly is not installed. ") from exc
 
+
 class PlotlyTarget(Target):
     """Plotly backend for plotting graphs. Implements the Target protocol."""
+
     def __init__(self, fig: go.Figure, row: int | None = None, col: int | None = None):
         """Initialize the PlotlyTarget with a Plotly Figure object.
         Args:
@@ -25,18 +29,18 @@ class PlotlyTarget(Target):
     def _plotly_color(color: ColorLike):
         cobj = parse_color(color)
         s = ", ".join(str(x) for x in cobj.as_rgb_int())
-        return f'rgba({s}, {cobj.a})'
+        return f"rgba({s}, {cobj.a})"
 
     def add_line(self, x, y, color=None, label=None, **kwargs):
         if color:
-            line_opts = kwargs.setdefault('line', {})
-            line_opts['color'] = self._plotly_color(color)
-        trace = go.Scatter(x=x, y=y, mode='lines', name=label, **kwargs)
+            line_opts = kwargs.setdefault("line", {})
+            line_opts["color"] = self._plotly_color(color)
+        trace = go.Scatter(x=x, y=y, mode="lines", name=label, **kwargs)
         return self.fig.add_trace(trace, row=self.row, col=self.col)
 
     def add_scatter(self, x, y, c=None, color=None, label=None, color_scale="linear", **kwargs):
         marker = kwargs.pop("marker", {})
-        if c is not None and color_scale == 'log':
+        if c is not None and color_scale == "log":
             c = np.log10(c)
         if c is not None:
             marker["color"] = c
@@ -52,13 +56,13 @@ class PlotlyTarget(Target):
                 **kwargs,
             ),
             row=self.row,
-            col=self.col
+            col=self.col,
         )
 
     def set_ax_label(self, axis, label):
-        if axis == 'x':
+        if axis == "x":
             return self.fig.update_xaxes(title=label, row=self.row, col=self.col)
-        if axis == 'y':
+        if axis == "y":
             return self.fig.update_yaxes(title=label, row=self.row, col=self.col)
         raise ValueError(f"Unknown axis: {axis}")
 
@@ -83,9 +87,9 @@ class PlotlyTarget(Target):
         raise ValueError(f"Aspect must be either 'equal' or 'auto', not '{aspect}'")
 
     def set_scale(self, axis, scale):
-        if axis == 'x':
+        if axis == "x":
             return self.fig.update_xaxes(type=scale)
-        if axis == 'y':
+        if axis == "y":
             return self.fig.update_yaxes(type=scale)
         raise ValueError(f"Unknown axis: {axis}")
 

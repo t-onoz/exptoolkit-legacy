@@ -1,11 +1,13 @@
 from __future__ import annotations
-import re
-import typing as t
+
 import json
 import os
-from dataclasses import dataclass, asdict
+import re
+import typing as t
+from dataclasses import asdict, dataclass
 
 from exptoolkit.repository._utils import atomic_open
+
 
 @dataclass(frozen=True)
 class DataResource:
@@ -17,10 +19,13 @@ class DataResource:
 
     `type_` represents additional information about a resource ("raw", "csv", etc.).
     """
+
     ref: str
     type_: str | None = None
 
+
 MeasurementID = t.NewType("MeasurementID", str)
+
 
 class ResourceRepo:
     """
@@ -36,7 +41,8 @@ class ResourceRepo:
         - Each DataResource belongs to exactly one MeasurementID (many-to-one).
         - Sample names can be shared across resources and measurements.
     """
-    _dump_version = '1.0.0'
+
+    _dump_version = "1.0.0"
 
     def __init__(self) -> None:
         self._ref2d: dict[str, DataResource] = {}
@@ -49,11 +55,14 @@ class ResourceRepo:
         self._sample2ref: dict[str, set[str]] = {}
         self._ref2samples: dict[str, set[str]] = {}
 
-    def add(self, ref: str, *,
-            measurement_id: str,
-            samples: str | t.Iterable[str],
-            data_type: str | None = None
-            ) -> DataResource:
+    def add(
+        self,
+        ref: str,
+        *,
+        measurement_id: str,
+        samples: str | t.Iterable[str],
+        data_type: str | None = None,
+    ) -> DataResource:
         """Register a data source and its relations.
 
         Args:
@@ -79,7 +88,7 @@ class ResourceRepo:
                 )
         samples = [samples] if isinstance(samples, str) else samples
         if not samples:
-            raise ValueError('samples must not be empty.')
+            raise ValueError("samples must not be empty.")
 
         # commit all data at once
         self._ref2d[dr.ref] = dr
@@ -101,7 +110,7 @@ class ResourceRepo:
         try:
             dr = self._ref2d.pop(ref)
         except KeyError as e:
-            raise ValueError(f'{repr(ref)} does not exist in repository.') from e
+            raise ValueError(f"{repr(ref)} does not exist in repository.") from e
 
         mid = self._ref2m[ref]
         samples = self._ref2samples[ref].copy()
@@ -121,9 +130,9 @@ class ResourceRepo:
 
     def move_resource(self, ref_before: str, ref_after: str) -> None:
         if ref_before not in self._ref2d:
-            raise ValueError(f'{repr(ref_before)} does not exist in repository.')
+            raise ValueError(f"{repr(ref_before)} does not exist in repository.")
         if ref_after in self._ref2d:
-            raise ValueError(f'Cannot move resource because {repr(ref_after)} already exists.')
+            raise ValueError(f"Cannot move resource because {repr(ref_after)} already exists.")
 
         dr_before = self._ref2d[ref_before]
         mid = self._ref2m[ref_before]
@@ -140,9 +149,11 @@ class ResourceRepo:
     def by_sample_regex(self, pattern: str) -> dict[str, list[DataResource]]:
         """Find resources by sample name (O(N), slower). Returns mapping from sample to resources."""
         ptn = re.compile(pattern)
-        return {s: [self._ref2d[ref] for ref in ref_set]
-                for s, ref_set in self._sample2ref.items()
-                if ptn.search(s)}
+        return {
+            s: [self._ref2d[ref] for ref in ref_set]
+            for s, ref_set in self._sample2ref.items()
+            if ptn.search(s)
+        }
 
     def by_measurement(self, id_: str) -> list[DataResource]:
         """Return data sources belonging to a measurement."""
@@ -153,9 +164,7 @@ class ResourceRepo:
         """Return unique sample names associated with a measurement."""
         mid = MeasurementID(id_)
         refs = self._m2ref.get(mid, set())
-        return list({
-            s for ref in refs for s in self._ref2samples[ref]
-        })
+        return list({s for ref in refs for s in self._ref2samples[ref]})
 
     def measurement_of(self, resource: str | DataResource) -> MeasurementID:
         """Return the measurement of a data source (ref string or `DataResource` object)."""
@@ -207,7 +216,9 @@ class ResourceRepo:
                 assert ref in self._sample2ref.get(s, set()), f"{ref!r} missing in _sample2d[{s!r}]"
         for s, ref_set in self._sample2ref.items():
             for ref in ref_set:
-                assert s in self._ref2samples.get(ref, set()), f"{s!r} missing in _ref2samples[{ref!r}]"
+                assert s in self._ref2samples.get(ref, set()), (
+                    f"{s!r} missing in _ref2samples[{ref!r}]"
+                )
 
     def _to_dict(self) -> ResourceRepoData:
         """Dumps internal index into a dictionary."""
@@ -219,12 +230,12 @@ class ResourceRepo:
         }
 
     def save(self, file: str | os.PathLike | t.IO[str], **json_kw):
-        """Save ResourceRepo to a JSON file. """
+        """Save ResourceRepo to a JSON file."""
         data: ResourceRepoData = self._to_dict()
         json_kw.setdefault("indent", 2)
         json_kw.setdefault("ensure_ascii", False)
         if isinstance(file, (str, os.PathLike)):
-            with atomic_open(file, "w", encoding='utf-8') as f:
+            with atomic_open(file, "w", encoding="utf-8") as f:
                 json.dump(data, f, **json_kw)
         else:
             json.dump(data, file, **json_kw)
@@ -233,16 +244,18 @@ class ResourceRepo:
     def load(cls, file: str | os.PathLike | t.IO[str]) -> ResourceRepo:
         """Load ResourceRepo from a JSON file."""
         if isinstance(file, (str, os.PathLike)):
-            with open(file, encoding='utf-8') as f:
+            with open(file, encoding="utf-8") as f:
                 data: ResourceRepoData = json.load(f)
         else:
             data = json.load(file)
 
         repo = ResourceRepo()
         # 0. check version
-        _ver = data.get('dump_version') or '1.0.0'
+        _ver = data.get("dump_version") or "1.0.0"
         if _ver != repo._dump_version:
-            raise ValueError(f'json version mismatch (json: {_ver}, expected: {repo._dump_version})')
+            raise ValueError(
+                f"json version mismatch (json: {_ver}, expected: {repo._dump_version})"
+            )
 
         # 1. resources
         for dr_dump in data["resources"]:
@@ -286,6 +299,7 @@ class ResourceRepo:
 
     def to_polars(self):
         import polars as pl
+
         return pl.DataFrame(
             self._iter_rows(),
             schema=[
@@ -298,14 +312,18 @@ class ResourceRepo:
 
     def to_pandas(self):
         import pandas as pd
+
         df = pd.DataFrame(self._iter_rows())
-        df = df.astype({
-            "ref": "string",
-            "measurement_id": "string",
-            "data_type": "string",
-            "sample": "string",
-        })
+        df = df.astype(
+            {
+                "ref": "string",
+                "measurement_id": "string",
+                "data_type": "string",
+                "sample": "string",
+            }
+        )
         return df
+
 
 class ResourceRepoData(t.TypedDict):
     """Typed structure for JSON serialization of a ResourceRepo.
@@ -314,6 +332,7 @@ class ResourceRepoData(t.TypedDict):
     - ref2m: mapping from resource ref to serialized MeasurementID.
     - ref2samples: mapping from resource ref to associated sample names.
     """
+
     dump_version: str
     resources: list[dict[str, t.Any]]
     ref2m: dict[str, t.Any]
