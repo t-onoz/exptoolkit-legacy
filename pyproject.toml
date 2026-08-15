@@ -112,3 +112,9 @@ select = [
 [tool.mypy]
 python_version = "3.13"
 check_untyped_defs = true
+ignore_missing_imports = true
+
+# Relax type checks due to limitations in openpyxl type stubs.
+[[tool.mypy.overrides]]
+module = "exptoolkit.plotter.backends._openpyxl"
+disable_error_code = ["union-attr"]
