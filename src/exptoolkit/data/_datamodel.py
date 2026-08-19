@@ -424,6 +424,8 @@ def normalize_json_value(value) -> JSONScalar | JSONList | JSONDict:
         return float(value)
     if isinstance(value, np.bool_):
         return bool(value)
+    if isinstance(value, np.str_):
+        return str(value)
 
     # Other types that can be converted to JSON-serializable types with a warning
     if isinstance(value, PurePath):
@@ -471,7 +473,7 @@ class JSONDict(MutableMapping):
             for k, v in initial.items():
                 self[k] = v
 
-    def __getitem__(self, key: str):
+    def __getitem__(self, key: str) -> JSONScalar | JSONList | JSONDict:
         return self._data[key]
 
     def __setitem__(self, key: str, value: t.Any) -> None:
@@ -482,7 +484,7 @@ class JSONDict(MutableMapping):
     def __delitem__(self, key: str) -> None:
         del self._data[key]
 
-    def __iter__(self):
+    def __iter__(self) -> t.Iterator[str]:
         return iter(self._data)
 
     def __len__(self) -> int:
