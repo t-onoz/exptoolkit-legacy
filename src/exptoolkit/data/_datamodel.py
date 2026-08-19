@@ -344,6 +344,8 @@ class BaseData(SchemaMixin):
         return self.with_table(self.table.gather_every(n, offset))
 
     def normalize(self, norm_amount: float, norm_unit: str) -> t.Self:
+        """Normalize data by dividing columns by the given amount and unit.
+        Returns a new BaseData object with normalized values."""
         if self.norm.unit is not None:
             raise ValueError("data is already normalized")
         exprs = [
