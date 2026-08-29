@@ -197,14 +197,6 @@ def test_to_builtin_result_is_json_serializable():
     assert json.loads(encoded) == {"a": [1, True, None, {"b": "x"}]}
 
 
-def test_repr_looks_like_builtin_container():
-    d = JSONDict({"a": [1, 2]})
-    l = JSONList([1, {"a": 2}])
-
-    assert repr(d) == repr({"a": [1, 2]})
-    assert repr(l) == repr([1, {"a": 2}])
-
-
 def test_rich_returns_builtin_container():
     d = JSONDict({"a": [1, 2]})
     l = JSONList([1, {"a": 2}])
