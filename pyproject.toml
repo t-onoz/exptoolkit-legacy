@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "exptoolkit"
-version = "0.2.2"
+version = "0.2.3"
 description = "Data management toolkit for battery and experimental data processing and visualization."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -60,7 +60,9 @@ dev = [
   "coverage",
   "tox-uv",
   "pandas-stubs",
-  "types-openpyxl"
+  "types-openpyxl",
+  "pathlib-abc",
+  "universal-pathlib>=0.2",
 ]
 
 
