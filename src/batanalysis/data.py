@@ -16,8 +16,8 @@ class State:
 
 class ChargeDischargeData(BaseData):
     time = Column(pl.Float64, "s", Role.INTENSIVE)
-    cycle = Column(pl.UInt16, "dimensionless", Role.INTENSIVE)
-    step = Column(pl.UInt32, "dimensionless", Role.INTENSIVE)
+    cycle = Column(pl.Int32, "dimensionless", Role.INTENSIVE)
+    step = Column(pl.Int32, "dimensionless", Role.INTENSIVE)
     state = Column(
         pl.Enum(["charge", "discharge", "rest", "unknown"]), "dimensionless", Role.INTENSIVE
     )
@@ -37,7 +37,7 @@ class ChargeDischargeData(BaseData):
 
 
 class CycleSummaryData(BaseData):
-    cycle = Column(pl.UInt16, "dimensionless", Role.INTENSIVE)
+    cycle = Column(pl.Int32, "dimensionless", Role.INTENSIVE)
     capacity_charge = Column(pl.Float32, "mAh", Role.EXTENSIVE)
     capacity_charge_retention = Column(pl.Float32, "percent", Role.INTENSIVE)
     capacity_discharge = Column(pl.Float32, "mAh", Role.EXTENSIVE)
