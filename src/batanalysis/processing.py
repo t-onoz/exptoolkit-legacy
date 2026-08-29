@@ -248,27 +248,40 @@ def _differentiate_step(g: pl.DataFrame, window_in_volt, polyorder) -> pl.DataFr
 
 def chargedischarge_to_cycle(
     data: ChargeDischargeData,
-    base: Literal["first", "max"] = "first",
+    base: Literal["first", "max"] | int = "first",
     copy_metadata: bool = True,
 ) -> CycleSummaryData:
-    """_summary_
+    """
+    充放電データをサイクルごとに集計する。
 
     Args:
-        data (ChargeDischargeData): 充放電データ
-        base (Literal['first', 'max'], optional):
-            'fisrt'の場合、初回サイクルに対する維持率を計算する。
-            'max'の場合、最大値に対する維持率を計算する。. Defaults to 'first'.
+        data:
+            充放電データ。
+        base:
+            容量・エネルギー維持率の基準。
+            ``"first"`` は最初のnon-null値、``"max"`` は最大値、
+            整数の場合は指定したcycleの値を100%とする。
+        copy_metadata:
+            metadataを出力データにコピーするか。
 
     Returns:
-        CycleSummaryData:
+        サイクルごとの容量、エネルギー、維持率、効率を含むデータ。
     """
     cdd = ChargeDischargeData
     csd = CycleSummaryData
 
-    def _ret(expr: pl.Expr) -> pl.Expr:
+    if isinstance(base, int) and base not in data.cycle:
+        raise ValueError(f"Cycle {base} does not exist.")
+
+    def _retention(expr: pl.Expr) -> pl.Expr:
         if base == "first":
-            return expr / expr.first(ignore_nulls=True)
-        return expr / expr.max()
+            reference = expr.first(ignore_nulls=True)
+        elif base == "max":
+            reference = expr.max()
+        else:
+            reference = expr.filter(cdd.cycle.expr == base).first()
+
+        return expr / reference
 
     new_table = (
         data.table
@@ -306,16 +319,20 @@ def chargedischarge_to_cycle(
         # 容量保持率 (retention)
         #
         #    各 state (charge / discharge) ごとに
-        #    基準容量 (first または max) を計算し
+        #    基準容量 (first / max / 指定cycle) を計算し
         #    それに対する比をとる
         # --------------------------------------------------------
         .with_columns(
-            (100.0 * _ret(csd.capacity_charge.expr)).alias(csd.capacity_charge_retention.name),
-            (100.0 * _ret(csd.capacity_discharge.expr)).alias(
+            (100.0 * _retention(csd.capacity_charge.expr)).alias(
+                csd.capacity_charge_retention.name
+            ),
+            (100.0 * _retention(csd.capacity_discharge.expr)).alias(
                 csd.capacity_discharge_retention.name
             ),
-            (100.0 * _ret(csd.energy_charge.expr)).alias(csd.energy_charge_retention.name),
-            (100.0 * _ret(csd.energy_discharge.expr)).alias(csd.energy_discharge_retention.name),
+            (100.0 * _retention(csd.energy_charge.expr)).alias(csd.energy_charge_retention.name),
+            (100.0 * _retention(csd.energy_discharge.expr)).alias(
+                csd.energy_discharge_retention.name
+            ),
         )
         # ------------------------------------------------------------
         # 効率計算
