@@ -42,17 +42,30 @@ def detect_states(data: ChargeDischargeData, atol=1e-6, rtol=1e-4) -> None:
     ).to_series()
 
 
-def detect_steps(data: ChargeDischargeData, recalc_time=True) -> None:
+def detect_steps(
+    data: ChargeDischargeData,
+    recalc_time: bool = True,
+    *,
+    first_point_elapsed: float = 0.0,
+) -> None:
     cls = ChargeDischargeData
+
     if not data.is_col_ready("state"):
         detect_states(data)
+
     st = cls.state.expr.shift(fill_value=cls.state.expr.first()) != cls.state.expr
     cy = cls.cycle.expr.shift(fill_value=cls.cycle.expr.first()) != cls.cycle.expr
+
     data.step = data.table.select((st | cy).cum_sum().alias(cls.step.name)).to_series()
+
     if recalc_time:
         data.table = data.table.with_columns(
-            (cls.time.expr - cls.time.expr.first().over(cls.step.expr)).alias(cls.step_time.name),
-            (cls.time.expr - cls.time.expr.first().over(cls.cycle.expr)).alias(cls.cycle_time.name),
+            (cls.time.expr - cls.time.expr.first().over(cls.step.expr) + first_point_elapsed).alias(
+                cls.step_time.name
+            ),
+            (
+                cls.time.expr - cls.time.expr.first().over(cls.cycle.expr) + first_point_elapsed
+            ).alias(cls.cycle_time.name),
         )
 
 
