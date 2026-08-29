@@ -756,6 +756,235 @@ def _interpolate_dcr(g: pl.DataFrame) -> pl.DataFrame:
     )
 
 
+def calc_dcr_from_step(
+    data: ChargeDischargeData,
+    steps: Sequence[tuple[int, int]] | tuple[int, int],
+    t_extract: list[float] | Literal["last"] | None = None,
+    pulse_id: int = 1,
+    current_eps: float = 1e-4,
+    extract_time_tolerance: float = 0.1,
+) -> pl.DataFrame:
+    """
+    指定した連続するcycle/step区間についてDCRを計算する。
+
+    Parameters
+    ----------
+    data
+        充放電データ。
+    steps
+        1つのパルスを構成する ``(cycle, step)`` の列。
+        サンプリング条件変更などでstepが分かれている場合は、
+        連続する複数のstepを指定できる。
+    t_extract
+        DCRを抽出する経過時間 (s)。
+
+        - ``list[float]``: 指定時刻のDCRを返す。
+        - ``"last"``: パルスの最終データ点のDCRを返す。
+        - ``None``: パルス内の全データ点についてDCRを返す。
+    pulse_id
+        出力に付与するパルス番号。
+    current_eps
+        ``pulse_type`` の判定で電流が0とみなす許容値 (mA/[amount])。
+        ``abs(current) < current_eps`` の場合は ``"relax"`` とする。
+    extract_time_tolerance
+        指定した抽出時刻をパルス終端がわずかに下回る場合の
+        許容時間 (s)。
+
+    Returns
+    -------
+    pl.DataFrame
+        ``calc_dcr`` と同じ形式のDCR計算結果。
+
+    Notes
+    -----
+    ``steps`` に指定した区間は、元データ上で連続している必要がある。
+
+    ``cycle`` と ``step`` は、途中でstepが切り替わる場合も
+    パルス開始時の値を出力する。
+
+    ``t0`` は最初のstepの ``step_time`` から求める。
+    ``V0``, ``I0``, ``Q0`` はパルス開始直前のデータ点を使用する。
+    """
+    cls = ChargeDischargeData
+
+    if pulse_id < 1:
+        raise ValueError("pulse_id must be >= 1.")
+    if current_eps < 0:
+        raise ValueError("current_eps must be non-negative.")
+    if extract_time_tolerance < 0:
+        raise ValueError("extract_time_tolerance must be non-negative.")
+
+    steps_seq = _normalize_cycle_steps(steps)
+
+    if not steps_seq:
+        raise ValueError("steps is empty.")
+
+    if isinstance(t_extract, list):
+        if not t_extract:
+            raise ValueError("t_extract is empty.")
+        if any(not math.isfinite(t) or t < 0 for t in t_extract):
+            raise ValueError("t_extract must contain finite non-negative values.")
+
+    required_columns = [
+        cls.time,
+        cls.current,
+        cls.voltage,
+        cls.cycle,
+        cls.step,
+        cls.step_time,
+    ]
+    missing_columns = [column.name for column in required_columns if not data.is_col_ready(column)]
+    if missing_columns:
+        raise ValueError("Required columns are not ready: " + ", ".join(missing_columns))
+
+    output_columns = [
+        "pulse_id",
+        "pulse_type",
+        "cycle",
+        "step",
+        "t0",
+        "V0",
+        "I0",
+        "Q0",
+        "Δt",
+        "ΔI",
+        "ΔV",
+        "DCR",
+        "DCR_raw",
+    ]
+    if isinstance(t_extract, list):
+        output_columns.append("Δt_nearest")
+
+    df = data.table.with_row_index("_row_index")
+
+    # 指定したcycle/stepを抽出する
+    is_target = pl.any_horizontal(
+        *[(cls.cycle.expr == cycle) & (cls.step.expr == step) for cycle, step in steps_seq]
+    )
+    pulse = df.filter(is_target)
+
+    if pulse.is_empty():
+        raise ValueError("Specified steps were not found.")
+
+    # 指定した全stepが存在し、指定順に連続していることを確認する
+    observed_steps = list(
+        pulse.select(cls.cycle.name, cls.step.name)
+        .filter(
+            (cls.cycle.expr != cls.cycle.expr.shift()) | (cls.step.expr != cls.step.expr.shift())
+        )
+        .iter_rows()
+    )
+
+    if observed_steps != list(steps_seq):
+        raise ValueError("Specified steps must exist and appear in the given order.")
+
+    first_index = int(pulse["_row_index"][0])
+    last_index = int(pulse["_row_index"][-1])
+
+    if last_index - first_index + 1 != pulse.height:
+        raise ValueError("Specified steps must form one continuous interval.")
+
+    if first_index == 0:
+        raise ValueError("A data point before the specified pulse is required.")
+
+    # パルス開始直前の状態を基準とする
+    before = df.row(first_index - 1, named=True)
+    first = pulse.row(0, named=True)
+
+    t0 = first[cls.time.name] - first[cls.step_time.name]
+    V0 = before[cls.voltage.name]
+    I0 = before[cls.current.name]
+    Q0 = before[cls.capacity.name]
+
+    cycle0, step0 = steps_seq[0]
+
+    pulse_current = pulse[cls.current.name][-1]
+
+    if abs(pulse_current) < current_eps:
+        pulse_type = "relax"
+    elif pulse_current > I0:
+        pulse_type = "pulse(+)"
+    else:
+        pulse_type = "pulse(-)"
+
+    pulse = (
+        pulse.with_columns(
+            pl.lit(pulse_id, dtype=pl.UInt32).alias("pulse_id"),
+            pl.lit(cycle0).alias("cycle"),
+            pl.lit(step0).alias("step"),
+            pl.lit(t0).alias("t0"),
+            pl.lit(V0).alias("V0"),
+            pl.lit(I0).alias("I0"),
+            pl.lit(Q0).alias("Q0"),
+        )
+        .with_columns(
+            (cls.time.expr - pl.col("t0")).alias("Δt"),
+            (cls.current.expr - pl.col("I0")).alias("ΔI"),
+            (cls.voltage.expr - pl.col("V0")).alias("ΔV"),
+        )
+        .drop("_row_index")
+    )
+
+    # 指定時刻のデータを抽出する
+    if t_extract == "last":
+        pulse = pulse.tail(1)
+
+    elif isinstance(t_extract, list):
+        target_times = pl.DataFrame({"t_star": sorted(set(t_extract))})
+
+        pulse = (
+            pulse.sort("Δt")
+            .join(target_times, how="cross")
+            .filter(
+                pl.col("Δt").max().over("pulse_id") >= pl.col("t_star") - extract_time_tolerance
+            )
+        )
+
+        if pulse.height == 0:
+            pulse = pulse.with_columns(
+                pl.lit(
+                    None,
+                    dtype=pulse.schema["Δt"],
+                ).alias("Δt_nearest")
+            )
+        else:
+            pulse = (
+                pulse.group_by(
+                    "pulse_id",
+                    "t_star",
+                    maintain_order=True,
+                )
+                .map_groups(_interpolate_dcr)
+                .sort("pulse_id", "t_star")
+            )
+
+    # DCRを計算する
+    if data.norm.amount is None or not math.isfinite(data.norm.amount):
+        norm_factor = 1.0
+    else:
+        norm_factor = data.norm.amount
+
+    return (
+        pulse.with_columns(
+            (pl.col("ΔV") / pl.col("ΔI") * 1000).alias("DCR"),
+        )
+        .with_columns(
+            (pl.col("DCR") / norm_factor).alias("DCR_raw"),
+            pl.lit(pulse_type).alias("pulse_type").cast(pl.Enum(["relax", "pulse(+)", "pulse(-)"])),
+        )
+        .select(output_columns)
+    )
+
+
+def _normalize_cycle_steps(
+    steps: Sequence[tuple[int, int]] | tuple[int, int],
+) -> list[tuple[int, int]]:
+    if len(steps) == 2 and isinstance(steps[0], int) and isinstance(steps[1], int):
+        return [steps]  # type: ignore
+
+    return list(steps)  # type: ignore
+
+
 def calc_z_theta(data: EISData):
     data.abs_Z = (data.re_Z**2 + data.im_Z**2).sqrt()
     data.theta = data.table.select(
