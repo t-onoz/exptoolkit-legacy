@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from logging import getLogger
 from typing import TYPE_CHECKING, Literal, cast
 
 import numpy as np
+import numpy.typing as npt
 import polars as pl
 
 from batanalysis._savgol import savgol_filter_np
@@ -552,6 +554,208 @@ def calc_z_theta(data: EISData):
     data.theta = data.table.select(
         pl.arctan2(EISData.im_Z.expr, EISData.re_Z.expr).alias(EISData.theta.name)
     ).to_series()
+
+
+_default_q_grid = np.linspace(0.0, 1.0, 101)
+
+
+def featurize_charge_discharge(
+    data: ChargeDischargeData,
+    *,
+    cycle: int = 1,
+    q_grid: Sequence[float] | npt.NDArray[np.floating] = _default_q_grid,
+    first_point_elapsed: float = 0.01,
+    smooth_window: int = 7,
+    smooth_polyorder: int = 2,
+) -> dict[str, float]:
+    """1サイクルの充放電データを機械学習用の特徴量に変換する。
+
+    Rest → Charge → Rest → Discharge → Rest の測定を対象とし、
+    容量・エネルギー、V(q)、dV/dq、およびRest時の電圧変化を返す。
+
+    qは各充放電stepの最終容量で規格化した容量 Q / Q_end とする。
+    """
+    cls = ChargeDischargeData
+
+    q_grid = np.asarray(q_grid, dtype=float, copy=True)
+
+    if (
+        q_grid.ndim != 1
+        or len(q_grid) < 2
+        or np.any(np.diff(q_grid) <= 0)
+        or q_grid[0] < 0.0
+        or q_grid[-1] > 1.0
+    ):
+        raise ValueError("q_grid must be a strictly increasing 1-D sequence within [0, 1].")
+
+    dq = np.diff(q_grid)
+    if not np.allclose(dq, dq[0]):
+        raise ValueError("q_grid must be equally spaced.")
+
+    if first_point_elapsed < 0:
+        raise ValueError("first_point_elapsed must be >= 0.")
+
+    if smooth_window < 3 or smooth_window % 2 == 0:
+        raise ValueError("smooth_window must be an odd integer >= 3.")
+
+    if smooth_polyorder >= smooth_window:
+        raise ValueError("smooth_polyorder must be smaller than smooth_window.")
+
+    if smooth_window > len(q_grid):
+        raise ValueError("smooth_window must not exceed the length of q_grid.")
+
+    if not data.is_col_ready(cls.state):
+        raise ValueError("state must already be assigned before feature extraction.")
+
+    # 元データは変更しない。
+    data = data.with_table(data.table.clone())
+
+    # stateの連続区間を論理stepとして再構成する。
+    # first_point_elapsed > 0 の場合、最初の測定点はstep開始時刻より後にある。
+    detect_steps(
+        data,
+        first_point_elapsed=first_point_elapsed,
+    )
+
+    # stepを作り直したため、step単位の容量・エネルギーも再計算する。
+    integrate_capacity(
+        data,
+        skip_cycle=True,
+        skip_total=True,
+    )
+    integrate_energy(
+        data,
+        skip_cycle=True,
+        skip_total=True,
+    )
+
+    df = data.table.filter(cls.cycle.expr == cycle)
+
+    if df.is_empty():
+        raise ValueError(f"Cycle {cycle} does not exist.")
+
+    steps = df.group_by(cls.step.name, maintain_order=True).agg(
+        cls.state.expr.first().alias(cls.state.name)
+    )
+
+    states = steps[cls.state.name].to_list()
+    expected = [
+        State.REST,
+        State.CHARGE,
+        State.REST,
+        State.DISCHARGE,
+        State.REST,
+    ]
+
+    if states != expected:
+        raise ValueError(
+            f"Expected Rest -> Charge -> Rest -> Discharge -> Rest, but got {' -> '.join(states)}."
+        )
+
+    step_ids = steps[cls.step.name].to_list()
+
+    charge = df.filter(cls.step.expr == step_ids[1])
+    rest_after_charge = df.filter(cls.step.expr == step_ids[2])
+    discharge = df.filter(cls.step.expr == step_ids[3])
+    rest_after_discharge = df.filter(cls.step.expr == step_ids[4])
+
+    features: dict[str, float] = {}
+
+    # 容量・エネルギー
+    features["charge_capacity"] = float(charge[cls.step_capacity.name][-1])
+    features["discharge_capacity"] = float(discharge[cls.step_capacity.name][-1])
+    features["charge_energy"] = float(charge[cls.step_energy.name][-1])
+    features["discharge_energy"] = float(discharge[cls.step_energy.name][-1])
+
+    # V(q), dV/dq(q)
+    for prefix, step in (
+        ("charge", charge),
+        ("discharge", discharge),
+    ):
+        q = step[cls.step_capacity.name].to_numpy()
+        v = step[cls.voltage.name].to_numpy()
+
+        valid = np.isfinite(q) & np.isfinite(v)
+        q = q[valid]
+        v = v[valid]
+
+        if len(q) < 2:
+            raise ValueError(f"Not enough valid points in {prefix} step.")
+
+        q_end = q[-1]
+        if not np.isfinite(q_end) or q_end <= 0:
+            raise ValueError(f"Invalid final capacity in {prefix} step.")
+
+        q = q / q_end
+
+        # 同じ容量値が複数ある場合は最後の電圧を採用する。
+        _, reverse_index = np.unique(
+            q[::-1],
+            return_index=True,
+        )
+        keep = len(q) - 1 - reverse_index
+        keep.sort()
+
+        q = q[keep]
+        v = v[keep]
+
+        if len(q) < 2:
+            raise ValueError(f"Not enough unique capacity points in {prefix} step.")
+
+        # q=0は通常未観測なので、最初の実測電圧で補う。
+        v_raw = np.interp(
+            q_grid,
+            q,
+            v,
+            left=v[0],
+            right=v[-1],
+        )
+
+        v_smooth = savgol_filter_np(
+            v_raw,
+            window_length=smooth_window,
+            polyorder=smooth_polyorder,
+        )
+
+        dvdq = savgol_filter_np(
+            v_raw,
+            window_length=smooth_window,
+            polyorder=smooth_polyorder,
+            deriv=1,
+            delta=float(dq[0]),
+        )
+
+        for q_value, value in zip(q_grid, v_smooth):
+            features[f"{prefix}_v_q{q_value:.3f}"] = float(value)
+
+        for q_value, value in zip(q_grid, dvdq):
+            features[f"{prefix}_dvdq_q{q_value:.3f}"] = float(value)
+
+    # Rest時の電圧変化
+    for prefix, previous, rest in (
+        (
+            "post_charge_rest",
+            charge,
+            rest_after_charge,
+        ),
+        (
+            "post_discharge_rest",
+            discharge,
+            rest_after_discharge,
+        ),
+    ):
+        previous_v = previous[cls.voltage.name].drop_nulls().to_numpy()
+        rest_v = rest[cls.voltage.name].drop_nulls().to_numpy()
+
+        if len(previous_v) == 0 or len(rest_v) == 0:
+            raise ValueError(f"Not enough voltage data for {prefix}.")
+
+        v_ref = float(previous_v[-1])
+
+        features[f"{prefix}_delta_v_first"] = float(rest_v[0]) - v_ref
+        features[f"{prefix}_delta_v_end"] = float(rest_v[-1]) - v_ref
+
+    return features
 
 
 if TYPE_CHECKING:
