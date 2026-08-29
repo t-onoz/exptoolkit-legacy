@@ -28,14 +28,6 @@ if t.TYPE_CHECKING:
 logger = getLogger()
 
 
-class JSONSerializationWarning(UserWarning):
-    """Warning for values converted during JSON serialization."""
-
-
-JSONScalar = t.Union[None, bool, int, float, str]
-JSONValue = t.Union[JSONScalar, "list[JSONValue]", "dict[str, JSONValue]"]
-
-
 # `import pint` takes some time, so perform lazy import
 @lru_cache
 def load_ureg() -> UnitRegistry:
@@ -219,7 +211,7 @@ class BaseData(SchemaMixin):
                 self.table.write_parquet(f)
 
             manifest = {
-                "metadata": self.metadata.to_dict(),
+                "metadata": self.metadata.to_builtin(),
                 "norm": tuple(self.norm),
                 "version": 1,
                 "format": "exptoolkit",
@@ -263,7 +255,7 @@ class BaseData(SchemaMixin):
         manifest = {
             "class": type(self).__name__,
             "norm": tuple(self.norm),
-            "metadata": self.metadata.to_dict(),
+            "metadata": self.metadata.to_builtin(),
         }
         with Workbook(path) as wb:
             self.table.write_excel(wb, worksheet=ws_table)
@@ -405,17 +397,16 @@ class BaseData(SchemaMixin):
         return pl.lit(None, dtype=self.schema[col].dtype).alias(col)
 
 
-def normalize_json_value(value) -> JSONScalar | JSONList | JSONDict:
+class JSONSerializationWarning(UserWarning):
+    """Warning for values converted during JSON serialization."""
+
+
+_JsonNode = t.Union[None, bool, int, float, str, "JSONList", "JSONDict"]
+
+
+def _normalize_json_value(value) -> _JsonNode:
     if value is None:
         return None
-
-    # JSON-serializable types
-    if isinstance(value, (bool, int, float, str, JSONList, JSONDict)):
-        return value
-    if isinstance(value, (list, tuple)):
-        return JSONList(value)
-    if isinstance(value, dict):
-        return JSONDict(value)
 
     # Types that can be safely converted to JSON-serializable types
     if isinstance(value, np.integer):
@@ -426,6 +417,14 @@ def normalize_json_value(value) -> JSONScalar | JSONList | JSONDict:
         return bool(value)
     if isinstance(value, np.str_):
         return str(value)
+
+    # JSON-serializable types
+    if isinstance(value, (bool, int, float, str, JSONList, JSONDict)):
+        return value
+    if isinstance(value, (list, tuple)):
+        return JSONList(value)
+    if isinstance(value, dict):
+        return JSONDict(value)
 
     # Other types that can be converted to JSON-serializable types with a warning
     if isinstance(value, PurePath):
@@ -454,6 +453,14 @@ def normalize_json_value(value) -> JSONScalar | JSONList | JSONDict:
         if isinstance(value, pd.DataFrame):
             _warn_conversion(value, "dict")
             return JSONDict(value.to_dict(orient="list"))
+    try:
+        from pathlib_abc import JoinablePath
+    except ImportError:
+        pass
+    else:
+        if isinstance(value, JoinablePath):
+            _warn_conversion(value, "string")
+            return str(value)
 
     # Unsupported types
     raise TypeError(f"Value of type {type(value)} is not supported for JSON serialization")
@@ -467,19 +474,21 @@ def _warn_conversion(value, to_type: str, stacklevel=4) -> None:
 class JSONDict(MutableMapping):
     """A dict-like class that only accepts JSON-serializable values."""
 
+    _data: dict[str, _JsonNode]
+
     def __init__(self, initial: t.Mapping[str, t.Any] | None = None) -> None:
-        self._data: dict[str, t.Any] = {}
+        self._data = {}
         if initial is not None:
             for k, v in initial.items():
                 self[k] = v
 
-    def __getitem__(self, key: str) -> JSONScalar | JSONList | JSONDict:
+    def __getitem__(self, key: str) -> t.Any:
         return self._data[key]
 
     def __setitem__(self, key: str, value: t.Any) -> None:
         if not isinstance(key, str):
             raise TypeError(f"key must be a string, got {type(key)}")
-        self._data[key] = normalize_json_value(value)
+        self._data[key] = _normalize_json_value(value)
 
     def __delitem__(self, key: str) -> None:
         del self._data[key]
@@ -490,11 +499,14 @@ class JSONDict(MutableMapping):
     def __len__(self) -> int:
         return len(self._data)
 
-    def to_dict(self) -> dict[str, JSONValue]:
-        return {k: _to_builtin(v) for k, v in self._data.items()}
+    def to_builtin(self) -> dict[str, t.Any]:
+        return _to_builtin(self)
 
     def __repr__(self):
-        return f"JSONDict({self._data!r})"
+        return f"{type(self).__name__}({self._data!r})"
+
+    def __rich__(self):
+        return self.to_builtin()
 
     def copy(self):
         return self.__copy__()
@@ -514,32 +526,45 @@ class JSONDict(MutableMapping):
 
 
 class JSONList(MutableSequence):
+    _data: list[_JsonNode]
+
     def __init__(self, initial: t.Iterable[t.Any] | None = None):
-        self._data: list[t.Any] = []
+        self._data = []
         if initial is not None:
             for v in initial:
                 self.append(v)
 
-    def __getitem__(self, index):
+    @t.overload
+    def __getitem__(self, index: int) -> t.Any: ...
+
+    @t.overload
+    def __getitem__(self, index: slice) -> JSONList: ...
+
+    def __getitem__(self, index: int | slice) -> t.Any:
+        if isinstance(index, slice):
+            return JSONList(self._data[index])
         return self._data[index]
 
-    def __setitem__(self, index, value):
-        self._data[index] = normalize_json_value(value)
+    def __setitem__(self, index, value: t.Any) -> None:
+        self._data[index] = _normalize_json_value(value)
 
     def __delitem__(self, index):
         del self._data[index]
 
-    def insert(self, index, value) -> None:
-        self._data.insert(index, normalize_json_value(value))
+    def insert(self, index, value: t.Any) -> None:
+        self._data.insert(index, _normalize_json_value(value))
 
     def __len__(self):
         return len(self._data)
 
-    def to_list(self) -> list[JSONValue]:
-        return [_to_builtin(v) for v in self._data]
+    def to_builtin(self) -> list[t.Any]:
+        return _to_builtin(self)
 
     def __repr__(self):
-        return f"JSONList({self._data!r})"
+        return f"{type(self).__name__}({self._data!r})"
+
+    def __rich__(self):
+        return self.to_builtin()
 
     def copy(self):
         return self.__copy__()
@@ -563,7 +588,7 @@ class JSONList(MutableSequence):
         return NotImplemented
 
 
-def _to_builtin(v) -> JSONValue:
+def _to_builtin(v: _JsonNode) -> t.Any:
     if isinstance(v, JSONDict):
         return {k: _to_builtin(val) for k, val in v.items()}
     if isinstance(v, JSONList):
