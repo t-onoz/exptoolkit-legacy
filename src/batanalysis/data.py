@@ -44,7 +44,7 @@ class CycleSummaryData(BaseData):
     capacity_discharge_retention = Column(pl.Float32, "percent", Role.INTENSIVE)
     coulomb_efficiency = Column(pl.Float32, "percent", Role.INTENSIVE)
     energy_charge = Column(pl.Float32, "mWh", Role.EXTENSIVE)
-    energy_charge_retention = Column(pl.Float32, "dimensionless", Role.INTENSIVE)
+    energy_charge_retention = Column(pl.Float32, "percent", Role.INTENSIVE)
     energy_discharge = Column(pl.Float32, "mWh", Role.EXTENSIVE)
     energy_discharge_retention = Column(pl.Float32, "percent", Role.INTENSIVE)
     energy_efficiency = Column(pl.Float32, "percent", Role.INTENSIVE)
