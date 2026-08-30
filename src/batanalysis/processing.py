@@ -251,24 +251,28 @@ def chargedischarge_to_cycle(
     base: Literal["first", "max"] | int = "first",
     copy_metadata: bool = True,
 ) -> CycleSummaryData:
-    """
-    充放電データをサイクルごとに集計する。
+    """充放電データをcycleごとのサマリに変換する。
 
     Args:
         data:
             充放電データ。
         base:
             容量・エネルギー維持率の基準。
-            ``"first"`` は最初のnon-null値、``"max"`` は最大値、
-            整数の場合は指定したcycleの値を100%とする。
+
+            - ``"first"``: 最初のnon-null値を100%とする。
+            - ``"max"``: 最大値を100%とする。
+            - ``int``: 指定したcycleの値を100%とする。
         copy_metadata:
-            metadataを出力データにコピーするか。
+            元データのmetadataを引き継ぐかどうか。
 
     Returns:
-        サイクルごとの容量、エネルギー、維持率、効率を含むデータ。
+        cycleごとの容量、エネルギー、維持率、効率をまとめたデータ。
     """
     cdd = ChargeDischargeData
     csd = CycleSummaryData
+
+    if not isinstance(base, int) and base not in ("first", "max"):
+        raise ValueError("base must be 'first', 'max', or a cycle number.")
 
     if isinstance(base, int) and base not in data.cycle:
         raise ValueError(f"Cycle {base} does not exist.")
@@ -279,80 +283,52 @@ def chargedischarge_to_cycle(
         elif base == "max":
             reference = expr.max()
         else:
-            reference = expr.filter(cdd.cycle.expr == base).first()
+            reference = expr.filter(csd.cycle.expr == base).first()
 
-        return expr / reference
+        return 100.0 * expr / reference
 
+    # step最終値 → cycle/stateごとの集計 → charge/dischargeの横持ち化
+    # → 維持率・効率の計算
     new_table = (
-        data.table
-        # ------------------------------------------------------------
-        # 充電・放電ステップのみ使用（restなどを除外）
-        # ------------------------------------------------------------
-        .filter(cdd.state.expr.is_in([State.CHARGE, State.DISCHARGE]))
-        # ------------------------------------------------------------
-        # 各stepの最終値を取得
-        #    step_capacity / step_energy は通常累積値なので
-        #    stepごとの最終行を取ることで step全体の値を得る
-        # ------------------------------------------------------------
+        data.table.filter(cdd.state.expr.is_in([State.CHARGE, State.DISCHARGE]))
+        # step_capacity/energyはstep内の積算値なので、各stepの最終値を使う。
         .group_by(cdd.cycle.expr, cdd.step.expr, maintain_order=True)
         .last()
-        # ------------------------------------------------------------
-        # step → (cycle, state) に集約
-        #    1 cycle 内の charge / discharge の
-        #    capacity と energy をそれぞれ合計
-        # ------------------------------------------------------------
         .group_by(cdd.cycle.expr, cdd.state.expr, maintain_order=True)
         .agg(
             cdd.step_capacity.expr.sum().alias("capacity"),
             cdd.step_energy.expr.sum().alias("energy"),
         )
-        # ------------------------------------------------------------
-        # cycle内の charge / discharge の値を横持ち列として取得
-        # ------------------------------------------------------------
+        .with_columns(cdd.cycle.expr.alias(csd.cycle.name))
         .pivot(
             on=cdd.state.name,
             on_columns=[State.CHARGE, State.DISCHARGE],
-            index=cdd.cycle.name,
+            index=csd.cycle.name,
             values=["capacity", "energy"],
         )
-        # --------------------------------------------------------
-        # 容量保持率 (retention)
-        #
-        #    各 state (charge / discharge) ごとに
-        #    基準容量 (first / max / 指定cycle) を計算し
-        #    それに対する比をとる
-        # --------------------------------------------------------
         .with_columns(
-            (100.0 * _retention(csd.capacity_charge.expr)).alias(
-                csd.capacity_charge_retention.name
-            ),
-            (100.0 * _retention(csd.capacity_discharge.expr)).alias(
-                csd.capacity_discharge_retention.name
-            ),
-            (100.0 * _retention(csd.energy_charge.expr)).alias(csd.energy_charge_retention.name),
-            (100.0 * _retention(csd.energy_discharge.expr)).alias(
-                csd.energy_discharge_retention.name
-            ),
+            _retention(csd.capacity_charge.expr).alias(csd.capacity_charge_retention.name),
+            _retention(csd.capacity_discharge.expr).alias(csd.capacity_discharge_retention.name),
+            _retention(csd.energy_charge.expr).alias(csd.energy_charge_retention.name),
+            _retention(csd.energy_discharge.expr).alias(csd.energy_discharge_retention.name),
         )
-        # ------------------------------------------------------------
-        # 効率計算
-        #
-        #    coulomb efficiency  = discharge capacity / charge capacity
-        #    energy efficiency   = discharge energy   / charge energy
-        # ------------------------------------------------------------
         .with_columns(
-            (100.0 * (csd.capacity_discharge.expr / csd.capacity_charge.expr)).alias(
+            (100.0 * csd.capacity_discharge.expr / csd.capacity_charge.expr).alias(
                 csd.coulomb_efficiency.name
             ),
-            (100.0 * (csd.energy_discharge.expr / csd.energy_charge.expr)).alias(
+            (100.0 * csd.energy_discharge.expr / csd.energy_charge.expr).alias(
                 csd.energy_efficiency.name
             ),
         )
     )
+
+    metadata = data.metadata.copy() if copy_metadata else {}
+    metadata["chargedischarge_to_cycle"] = {"base": base}
+
     return CycleSummaryData(
         new_table,
         normalization=data.norm,
-        metadata=data.metadata.copy() if copy_metadata else None,
+        metadata=metadata,
     )
 
 
