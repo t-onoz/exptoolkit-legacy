@@ -34,6 +34,7 @@ class ChargeDischargeData(BaseData):
     voltage = Column(pl.Float32, "V", Role.INTENSIVE)
     dqdv = Column(pl.Float32, "mAh/V", Role.EXTENSIVE)
     dvdq = Column(pl.Float32, "V/mAh", Role.INVERSE_EXTENSIVE)
+    soc = Column(pl.Float32, "percent", Role.INTENSIVE)
 
 
 class CycleSummaryData(BaseData):

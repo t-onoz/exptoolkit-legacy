@@ -332,6 +332,70 @@ def chargedischarge_to_cycle(
     )
 
 
+def calc_soc(
+    data: ChargeDischargeData,
+    q_min: Literal["auto"] | float | None = None,
+    q_max: Literal["auto"] | float | None = None,
+    q_width: Literal["auto"] | float | None = None,
+) -> None:
+    """Calculate SoC from capacity and update ``data.soc`` in-place.
+
+    Specify exactly two of ``q_min``, ``q_max``, and ``q_width``.
+    The remaining value is calculated from the other two. ``"auto"``
+    uses the observed capacity range.
+
+    Args:
+        data: Charge-discharge data.
+        q_min: Capacity corresponding to 0% SoC.
+        q_max: Capacity corresponding to 100% SoC.
+        q_width: Capacity range corresponding to 0-100% SoC.
+    """
+    params = (q_min, q_max, q_width)
+    if sum(x is not None for x in params) != 2:
+        raise ValueError("Specify exactly two of q_min, q_max, and q_width.")
+
+    _numbers = (int, float, np.floating, np.integer)
+
+    if isinstance(q_width, _numbers) and q_width <= 0:
+        raise ValueError("q_width must be positive.")
+
+    if isinstance(q_min, _numbers) and isinstance(q_max, _numbers) and q_max <= q_min:
+        raise ValueError("q_max must be greater than q_min.")
+
+    data.metadata["calc_soc"] = {"q_min": q_min, "q_max": q_max, "q_width": q_width}
+
+    capacity_min: float | None = data.capacity.min()  # type: ignore
+    capacity_max: float | None = data.capacity.max()  # type: ignore
+
+    if capacity_min is None or capacity_max is None:
+        data.soc = None
+        return
+
+    if q_min == "auto":
+        q_min = capacity_min
+    if q_max == "auto":
+        q_max = capacity_max
+    if q_width == "auto":
+        q_width = capacity_max - capacity_min
+
+    if q_min is None:
+        assert q_max is not None and q_width is not None
+        q_min = q_max - q_width
+    elif q_max is None:
+        assert q_min is not None and q_width is not None
+        q_max = q_min + q_width
+    elif q_width is None:
+        assert q_min is not None and q_max is not None
+        q_width = q_max - q_min
+
+    # Valid arguments may still produce an undefined SoC range from the data.
+    if q_width <= 0:
+        data.soc = None
+        return
+
+    data.soc = 100.0 * (ChargeDischargeData.capacity.expr - q_min) / q_width
+
+
 def calc_dcr(
     data: ChargeDischargeData,
     t_extract: list[float] | Literal["last"] | None = None,
@@ -1197,3 +1261,4 @@ if TYPE_CHECKING:
         chargedischarge_to_cycle
     )
     _calc_z_theta: Modifier[EISData] = calc_z_theta
+    _calc_soc: Modifier[ChargeDischargeData] = calc_soc
