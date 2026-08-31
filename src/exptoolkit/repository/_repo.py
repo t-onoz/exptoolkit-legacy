@@ -86,7 +86,7 @@ class ResourceRepo:
                     f"DataResource {dr.ref} is already assigned to Measurement {existing_mid}, "
                     f"cannot reassign to {mid}."
                 )
-        samples = [samples] if isinstance(samples, str) else samples
+        samples = [samples] if isinstance(samples, str) else list(samples)
         if not samples:
             raise ValueError("samples must not be empty.")
 
@@ -249,7 +249,7 @@ class ResourceRepo:
         else:
             data = json.load(file)
 
-        repo = ResourceRepo()
+        repo = cls()
         # 0. check version
         _ver = data.get("dump_version") or "1.0.0"
         if _ver != repo._dump_version:

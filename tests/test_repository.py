@@ -1,10 +1,11 @@
 # pylint: disable=W
-import pytest
 import re
 from tempfile import NamedTemporaryFile
+
 import polars as pl
+import pytest
+
 from exptoolkit.repository import ResourceRepo  # type: ignore[import]
-from exptoolkit.repository._repo import MeasurementID  # type: ignore[import]
 
 
 def test_add_and_lookup():
@@ -48,6 +49,7 @@ def test_remove():
     assert dr not in repo.by_sample("s1")
     assert dr not in repo.by_measurement("m1")
     assert dr not in repo.iter_resources()
+
 
 def test_move_resource():
     repo = ResourceRepo()
@@ -100,13 +102,14 @@ def test_multiple_measurements():
     assert dr1 in m1_set
     assert dr2 not in m1_set
 
+
 def test_save_and_load():
     repo = ResourceRepo()
     dr1 = repo.add("file1", measurement_id="m1", samples="s1")
     dr2 = repo.add("file2", measurement_id="m2", samples="s1")
     repo._check_indexes()
 
-    with NamedTemporaryFile(mode='w+') as tmp:
+    with NamedTemporaryFile(mode="w+") as tmp:
         repo.save(tmp)
         tmp.seek(0)
         repo2 = ResourceRepo.load(tmp)
@@ -118,8 +121,8 @@ def test_save_and_load():
     assert dr2 not in repo2.by_measurement("m1")
     assert dr1 not in repo2.by_measurement("m2")
     assert dr2 in repo2.by_measurement("m2")
-    assert dr1 in  repo2.by_sample("s1")
-    assert dr2 in  repo2.by_sample("s1")
+    assert dr1 in repo2.by_sample("s1")
+    assert dr2 in repo2.by_sample("s1")
 
 
 def test_by_sample_regex_basic():
@@ -181,12 +184,14 @@ def test_by_sample_regex_returns_distinct_lists():
     refs = {dr.ref for dr in result["s1"]}
     assert refs == {"a.csv", "b.csv"}
 
+
 def test_by_sample_regex_invalid_pattern():
     repo = ResourceRepo()
     repo.add("a.csv", measurement_id="m1", samples=["s1"])
 
     with pytest.raises(re.error):
         repo.by_sample_regex(r"[")  # invalid regex
+
 
 def test_broken_repo():
     repo = ResourceRepo()
@@ -200,23 +205,19 @@ def test_broken_repo():
 def test_to_df_basic():
     repo = ResourceRepo()
 
-    repo.add(
-        ref="file1",
-        measurement_id="m001",
-        samples=["A", "B"],
-        data_type="raw"
-    )
+    repo.add(ref="file1", measurement_id="m001", samples=["A", "B"], data_type="raw")
 
     df = repo.to_polars()
 
-    expected = pl.DataFrame([
-        {"ref": "file1", "measurement_id": "m001", "data_type": "raw", "sample": "A"},
-        {"ref": "file1", "measurement_id": "m001", "data_type": "raw", "sample": "B"},
-    ])
-
-    assert df.sort(df.columns).equals(
-        expected.sort(expected.columns)
+    expected = pl.DataFrame(
+        [
+            {"ref": "file1", "measurement_id": "m001", "data_type": "raw", "sample": "A"},
+            {"ref": "file1", "measurement_id": "m001", "data_type": "raw", "sample": "B"},
+        ]
     )
+
+    assert df.sort(df.columns).equals(expected.sort(expected.columns))
+
 
 def test_to_df_multiple_refs():
     repo = ResourceRepo()
@@ -262,3 +263,14 @@ def test_add_empty_samples_keeps_existing_repo():
 
     repo._check_indexes()
     assert "file1" not in repo._ref2d
+
+
+def test_add_rejects_empty_sample_iterable():
+    repo = ResourceRepo()
+
+    with pytest.raises(ValueError, match="samples must not be empty"):
+        repo.add(
+            "a.csv",
+            measurement_id="m1",
+            samples=iter(()),
+        )
