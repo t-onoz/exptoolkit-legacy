@@ -477,7 +477,7 @@ def _warn_conversion(value, to_type: str, stacklevel=4) -> None:
     warnings.warn(msg, JSONSerializationWarning, stacklevel=stacklevel)
 
 
-class JSONDict(MutableMapping):
+class JSONDict(MutableMapping[str, t.Any]):
     """A dict-like class that only accepts JSON-serializable values."""
 
     _data: dict[str, _JsonNode]
@@ -489,6 +489,8 @@ class JSONDict(MutableMapping):
                 self[k] = v
 
     def __getitem__(self, key: str) -> t.Any:
+        # Intentionally return Any: callers usually know the semantic type from
+        # the key, while exposing _JsonNode would only add narrowing burden.
         return self._data[key]
 
     def __setitem__(self, key: str, value: t.Any) -> None:
