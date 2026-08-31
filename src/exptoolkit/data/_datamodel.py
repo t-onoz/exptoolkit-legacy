@@ -122,45 +122,43 @@ class Column:
 
 
 class SchemaMixin:
-    """mixin class for data classes with a predefined schema.
-    provides a class attribute `schema` which is an ordered dict of column name and
-    ColumnSpec."""
-
     schema: Mapping[str, ColumnSpec]
-    _RESERVED_ATTR_NAMES = frozenset(
-        {
-            "col_to_unit",
-            "denormalize",
-            "df",
-            "df_to_units",
-            "downsample",
-            "export_csv",
-            "filter",
-            "get_unit",
-            "is_col_ready",
-            "load",
-            "metadata",
-            "norm",
-            "normalize",
-            "save",
-            "schema",
-            "table",
-            "with_table",
-        }
-    )
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
+
+        for name, value in cls.__dict__.items():
+            inherited = _find_inherited_attr(cls, name)
+
+            if inherited is _NOT_FOUND:
+                continue
+
+            if isinstance(value, Column) and not isinstance(inherited, Column):
+                raise ValueError(f"Column name {name!r} conflicts with an inherited attribute.")
+
+            if not isinstance(value, Column) and isinstance(inherited, Column):
+                raise ValueError(f"Column {name!r} cannot be overridden by a non-Column attribute.")
+
         schema = OrderedDict()
+
+        # Walk bases from oldest to newest so subclass Column definitions
+        # override base definitions.
         for base in reversed(cls.__mro__):
-            for attrname, attrval in base.__dict__.items():
-                if isinstance(attrval, Column):
-                    if attrname in cls._RESERVED_ATTR_NAMES:
-                        raise ValueError(
-                            f"Column name {attrname!r} is reserved and cannot be used."
-                        )
-                    schema[attrname] = attrval.get_spec()
+            for name, value in base.__dict__.items():
+                if isinstance(value, Column):
+                    schema[name] = value.get_spec()
+
         cls.schema = MappingProxyType(schema)
+
+
+_NOT_FOUND = object()
+
+
+def _find_inherited_attr(cls: type, name: str) -> object:
+    for base in cls.__mro__[1:]:
+        if name in base.__dict__:
+            return base.__dict__[name]
+    return _NOT_FOUND
 
 
 class BaseData(SchemaMixin):
