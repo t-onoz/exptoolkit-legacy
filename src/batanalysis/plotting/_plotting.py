@@ -122,7 +122,7 @@ class BodeZ(Plotter[EISData]):
 
     def _plot(self, data, target, label=None, color=None, **opts):
         cls = EISData
-        if not data.is_col_ready(cls.theta.name):
+        if not data.is_col_ready(cls.abs_Z.name):
             calc_z_theta(data)
         x = data.frequency
         y = data.abs_Z
