@@ -48,7 +48,7 @@ class ChargeDischarge(Plotter[ChargeDischargeData]):
         target.add_line(x, y, label=label, color=color, **opts)
         if self.add_ax_labels:
             target.set_ax_label("x", f"Capacity ({data.get_unit('step_capacity')})")
-            target.set_ax_label("y", f"Volatge ({data.get_unit('voltage')})")
+            target.set_ax_label("y", f"Voltage ({data.get_unit('voltage')})")
 
 
 @dataclass
