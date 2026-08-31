@@ -1,9 +1,10 @@
-import pytest
 import polars as pl
+import pytest
+
 from exptoolkit.data import BaseData, Column
 
-def test_schema_order():
 
+def test_schema_order():
     class A(BaseData):
         x = Column(pl.Float64)
 
@@ -14,7 +15,6 @@ def test_schema_order():
 
 
 def test_missing_column_filled():
-
     class A(BaseData):
         x = Column(pl.Float64)
 
@@ -25,7 +25,7 @@ def test_missing_column_filled():
 def test_drop_extra(sample_df):
     from conftest import SampleData
 
-    df = {**sample_df, "extra": [1,2,3]}
+    df = {**sample_df, "extra": [1, 2, 3]}
     d = SampleData(df, drop_extra_columns=True)
 
     assert "extra" not in d.table.columns
@@ -64,19 +64,18 @@ def test_column_override():
     assert B.schema["x"].dtype == pl.Float64
 
 
-@pytest.mark.parametrize(
-    "reserved_name",
-    sorted(BaseData._RESERVED_ATTR_NAMES),
-)
-def test_reserved_names(reserved_name):
-    with pytest.raises(
-        ValueError,
-        match=r"is reserved and cannot be used",
-    ):
-        type(
-            "TestData",
-            (BaseData,),
-            {
-                reserved_name: Column(pl.Int64),
-            },
-        )
+def test_column_cannot_override_inherited_non_column():
+    with pytest.raises(ValueError, match="conflicts with an inherited attribute"):
+
+        class Data(BaseData):
+            save = Column(pl.Float64)  # type: ignore[assignment]
+
+
+def test_non_column_cannot_override_inherited_column():
+    class A(BaseData):
+        x = Column(pl.Float64)
+
+    with pytest.raises(ValueError, match="cannot be overridden by a non-Column"):
+
+        class B(A):
+            x = "not a column"  # type: ignore[assignment]
