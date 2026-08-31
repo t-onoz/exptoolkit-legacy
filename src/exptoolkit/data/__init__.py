@@ -1,3 +1,3 @@
-from exptoolkit.data._datamodel import BaseData, Column, NormPolicy, Role
+from exptoolkit.data._datamodel import BaseData, Column, JSONDict, NormPolicy, Role
 
-__all__ = ["Column", "Role", "BaseData", "NormPolicy"]
+__all__ = ["Column", "Role", "BaseData", "NormPolicy", "JSONDict"]
