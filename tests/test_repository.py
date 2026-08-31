@@ -274,3 +274,7 @@ def test_add_rejects_empty_sample_iterable():
             measurement_id="m1",
             samples=iter(()),
         )
+
+    repo._check_indexes()
+
+    assert len(repo._ref2d) == 0
