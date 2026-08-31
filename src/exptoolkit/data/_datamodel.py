@@ -164,6 +164,7 @@ def _find_inherited_attr(cls: type, name: str) -> object:
 class BaseData(SchemaMixin):
     """Base class for representing data."""
 
+    _MANIFEST_VERSION: t.Final = 1
     norm: NormPolicy
 
     def __init__(
@@ -211,7 +212,7 @@ class BaseData(SchemaMixin):
             manifest = {
                 "metadata": self.metadata.to_builtin(),
                 "norm": tuple(self.norm),
-                "version": 1,
+                "version": self._MANIFEST_VERSION,
                 "format": "exptoolkit",
                 "class": type(self).__name__,
             }
@@ -231,6 +232,13 @@ class BaseData(SchemaMixin):
             fmt = manifest.get("format")
             if fmt != "exptoolkit":
                 raise ValueError(f"Unsupported file format: {fmt!r}")
+
+            # Files without a version field are treated as version 1.
+            version = manifest.get("version", 1)
+            if version != cls._MANIFEST_VERSION:
+                # Add migration logic here if backward compatibility is needed
+                # when the file format changes in the future.
+                raise ValueError(f"Unsupported file version: {version!r}")
 
             metadata = manifest.get("metadata", {})
             norm = tuple(manifest.get("norm", (None, None)))
