@@ -1,4 +1,3 @@
-import pytest
 from exptoolkit.repository import ResourceRepo, ResourceScanner, ScanResult
 
 
@@ -17,10 +16,12 @@ class DummyScanner(ResourceScanner):
 def test_scan_and_sync_add_only():
     repo = ResourceRepo()
 
-    scanner = DummyScanner([
-        ScanResult(ref="a.csv", measurement_id="m1", samples=("s1",)),
-        ScanResult(ref="b.csv", measurement_id="m2", samples=("s2",)),
-    ])
+    scanner = DummyScanner(
+        [
+            ScanResult(ref="a.csv", measurement_id="m1", samples=("s1",)),
+            ScanResult(ref="b.csv", measurement_id="m2", samples=("s2",)),
+        ]
+    )
 
     scanner.scan_and_sync(repo)
 
@@ -32,9 +33,11 @@ def test_scan_and_sync_remove():
     repo.add("a.csv", measurement_id="m1", samples=("s1",))
     repo.add("b.csv", measurement_id="m2", samples=("s2",))
 
-    scanner = DummyScanner([
-        ScanResult(ref="a.csv", measurement_id="m1", samples=("s1",)),
-    ])
+    scanner = DummyScanner(
+        [
+            ScanResult(ref="a.csv", measurement_id="m1", samples=("s1",)),
+        ]
+    )
 
     scanner.scan_and_sync(repo)
 
@@ -62,9 +65,11 @@ def test_scan_and_sync_add_and_remove_mix():
     repo = ResourceRepo()
     repo.add("old.csv", measurement_id="m1", samples=("s1",))
 
-    scanner = DummyScanner([
-        ScanResult(ref="new.csv", measurement_id="m2", samples=("s2",)),
-    ])
+    scanner = DummyScanner(
+        [
+            ScanResult(ref="new.csv", measurement_id="m2", samples=("s2",)),
+        ]
+    )
 
     scanner.scan_and_sync(repo)
 
@@ -85,3 +90,39 @@ def test_scan_must_be_complete_contract():
     scanner.scan_and_sync(repo)
 
     assert repo._ref2d == {}
+
+
+def test_scan_and_sync_update_existing():
+    repo = ResourceRepo()
+    repo.add(
+        "a.csv",
+        measurement_id="m1",
+        samples=("old_sample",),
+        data_type="old_type",
+    )
+
+    scanner = DummyScanner(
+        [
+            ScanResult(
+                ref="a.csv",
+                measurement_id="m2",
+                samples=("new_sample",),
+                data_type="new_type",
+            )
+        ]
+    )
+
+    scanner.scan_and_sync(repo)
+
+    resource = repo._ref2d["a.csv"]
+
+    assert resource.type_ == "new_type"
+    assert repo.measurement_of("a.csv") == "m2"
+    assert set(repo.samples_of("a.csv")) == {"new_sample"}
+
+    assert repo.by_sample("old_sample") == []
+    assert repo.by_sample("new_sample") == [resource]
+    assert repo.by_measurement("m1") == []
+    assert repo.by_measurement("m2") == [resource]
+
+    repo._check_indexes()

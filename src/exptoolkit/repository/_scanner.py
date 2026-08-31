@@ -23,7 +23,7 @@ class ScanResult(BaseModel):
     ref: str
     measurement_id: str
     samples: tuple[str, ...]
-    data_type: t.Union[str, None] = None
+    data_type: t.Union[str, None] = None  # noqa: UP007
 
 
 class ResourceScanner(ABC):
@@ -60,8 +60,10 @@ class ResourceScanner(ABC):
         results = self.scan()
         new_refs = {r.ref: r for r in results}
 
-        # add or update
+        # add or replace resources
         for r in results:
+            if r.ref in repo:
+                repo.remove(r.ref)
             repo.add(
                 r.ref,
                 measurement_id=r.measurement_id,
