@@ -18,7 +18,6 @@ from zipfile import ZIP_STORED, ZipFile
 
 import numpy as np
 import polars as pl
-from xlsxwriter import Workbook  # type: ignore
 
 if t.TYPE_CHECKING:
     import numpy.typing as npt
@@ -152,12 +151,18 @@ class SchemaMixin:
 
 
 _NOT_FOUND = object()
+_ANNOTATED = object()
 
 
 def _find_inherited_attr(cls: type, name: str) -> object:
     for base in cls.__mro__[1:]:
         if name in base.__dict__:
             return base.__dict__[name]
+
+        annotations = base.__dict__.get("__annotations__", {})
+        if name in annotations:
+            return _ANNOTATED
+
     return _NOT_FOUND
 
 
@@ -257,6 +262,8 @@ class BaseData(SchemaMixin):
         return cls(table, normalization=norm, metadata=metadata, drop_extra_columns=False)
 
     def export_excel(self, path, ws_table="table", ws_manifest="manifest") -> None:
+        from xlsxwriter import Workbook
+
         """exports the data to a .xlsx file."""
         manifest = {
             "class": type(self).__name__,

@@ -102,6 +102,8 @@ select = [
   "B",
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/*.py" = ["UP045"]
 
 [tool.mypy]
 python_version = "3.13"
