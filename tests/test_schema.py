@@ -71,6 +71,13 @@ def test_column_cannot_override_inherited_non_column():
             save = Column(pl.Float64)  # type: ignore[assignment]
 
 
+def test_column_cannot_override_annotated_non_column():
+    with pytest.raises(ValueError, match="conflicts with an inherited attribute"):
+
+        class Data(BaseData):
+            norm = Column(pl.Float64)  # type: ignore[assignment]
+
+
 def test_non_column_cannot_override_inherited_column():
     class A(BaseData):
         x = Column(pl.Float64)
