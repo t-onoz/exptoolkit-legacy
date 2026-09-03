@@ -310,6 +310,14 @@ class BaseData(SchemaMixin):
 
     @property
     def metadata(self) -> JSONDict:
+        """Free-form metadata associated with the data."""
+        # Design note:
+        # Metadata is intentionally schema-free. TypedDict and Pydantic-based
+        # approaches to subclass-specific metadata schemas were explored, but their
+        # static typing and runtime machinery added disproportionate complexity.
+        #
+        # State interpreted by BaseData itself should instead be represented by an
+        # explicit attribute, as with `norm`.
         return self._metadata
 
     @metadata.setter
