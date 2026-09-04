@@ -86,9 +86,11 @@ class _CacheEntry(BaseModel):
 class _CacheData(BaseModel):
     version: str
     root: PurePath
-    dir_regex: re.Pattern
-    file_regex: re.Pattern
+    dir_regex: str
+    file_regex: str
     entries: dict[str, _CacheEntry]
+    dir_regex_flags: int = re.UNICODE
+    file_regex_flags: int = re.UNICODE
 
 
 class DirectoryScanner(ResourceScanner):
@@ -226,8 +228,10 @@ class DirectoryScanner(ResourceScanner):
         return _CacheData(
             version=self._version,
             root=self.root,
-            dir_regex=self.dir_regex,
-            file_regex=self.file_regex,
+            dir_regex=self.dir_regex.pattern,
+            file_regex=self.file_regex.pattern,
+            dir_regex_flags=self.dir_regex.flags,
+            file_regex_flags=self.file_regex.flags,
             entries={mid: entry for mid, entry in self._cache.items()},
         )
 
@@ -259,14 +263,7 @@ class DirectoryScanner(ResourceScanner):
                 data = json.load(file)
 
             cache = _CacheData.model_validate(data)
-
-            if (
-                cache.version != self._version
-                or cache.root != self.root
-                or cache.dir_regex != self.dir_regex
-                or cache.file_regex != self.file_regex
-            ):
-                raise ValueError("Cache metadata mismatch.")
+            self._check_cache_header(cache)
 
             self._cache = dict(cache.entries)
 
@@ -277,3 +274,26 @@ class DirectoryScanner(ResourceScanner):
 
     def clear_cache(self):
         self._cache = {}
+
+    def _check_cache_header(self, cache: _CacheData) -> None:
+        mismatched = []
+        if cache.version != self._version:
+            mismatched.append(f"- version: {cache.version} != {self._version}")
+        if cache.root != self.root:
+            mismatched.append(f"- root: {cache.root} != {self.root}")
+        if cache.dir_regex != self.dir_regex.pattern:
+            mismatched.append(f"- dir_regex: {cache.dir_regex} != {self.dir_regex.pattern}")
+        if cache.file_regex != self.file_regex.pattern:
+            mismatched.append(f"- file_regex: {cache.file_regex} != {self.file_regex.pattern}")
+
+        if cache.dir_regex_flags != self.dir_regex.flags:
+            mismatched.append(
+                f"- dir_regex_flags: {cache.dir_regex_flags} != {self.dir_regex.flags}"
+            )
+        if cache.file_regex_flags != self.file_regex.flags:
+            mismatched.append(
+                f"- file_regex_flags: {cache.file_regex_flags} != {self.file_regex.flags}"
+            )
+
+        if mismatched:
+            raise ValueError("Cache header mismatch:\n" + "\n".join(mismatched))
