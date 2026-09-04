@@ -1,13 +1,28 @@
-__pycache__
-.idea/
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Virtual environments
+.venv/
+
+# Tool caches
 .mypy_cache/
 .pytest_cache/
+.ruff_cache/
 .tox/
-.vscode/
+
+# Build artifacts
 build/
 dist/
-*.egg-info/
-.venv*/
+
+# IDE
+.idea/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Generated example files
 examples/*.xlsx
 examples/*.csv
 examples/*.zip

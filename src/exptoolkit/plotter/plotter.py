@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Hashable
 from dataclasses import dataclass
 from string import capwords
-from typing import TYPE_CHECKING, Any, Hashable, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from exptoolkit.data import BaseData
 from exptoolkit.plotter.backends import get_target
@@ -69,6 +70,11 @@ class TargetManager(ABC):
 
     Subclasses implement `group_key()` and `factory()` to define the grouping
     rule and target creation strategy.
+
+    Notes
+    -----
+    This class is experimental and is not considered part of the stable public API.
+    Its interface may change without deprecation while the design is being refined.
     """
 
     def __init__(self) -> None:

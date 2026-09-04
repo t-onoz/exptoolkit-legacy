@@ -1,0 +1,28 @@
+{
+    // ---------- Python ----------
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.autoImportCompletions": true,
+    "mypy-type-checker.importStrategy": "fromEnvironment",
+
+    // ---------- Formatter ----------
+    "[python]": {
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.fixAll": "explicit",
+            "source.organizeImports": "explicit"
+        }
+    },
+
+    // ---------- Editor ----------
+    "editor.rulers": [100],
+
+    // ---------- Files ----------
+    "files.trimTrailingWhitespace": true,
+    "files.insertFinalNewline": true,
+    "files.eol": "\n",
+
+    // ---------- Testing ----------
+    "python.testing.pytestEnabled": true,
+    "python.testing.unittestEnabled": false
+}
