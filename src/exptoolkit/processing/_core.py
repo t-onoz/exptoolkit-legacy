@@ -154,7 +154,7 @@ class InterpolationFeaturizer(Featurizer[BaseData]):
     def _nan_features(self) -> NDArray[np.float64]:
         return np.full(len(self.feature_names), np.nan)
 
-    def _feaaturize(self, data: BaseData) -> NDArray[np.float64]:
+    def _featurize(self, data: BaseData) -> NDArray[np.float64]:
         x = np.asarray(data.table[self.x].to_numpy(), dtype=np.float64)
 
         if x.size < 2:
